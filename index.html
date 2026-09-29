@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>FF Money Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --ground:#F6F7F5; --surface:#FFFFFF; --surface-2:#EFF2EF; --ink:#15211C; --ink-2:#33443C; --muted:#67776E;
+  --rule:#DDE3DF; --rule-soft:#E9EDEA; --accent:#1D6B4C; --accent-soft:#E0EDE6; --accent-ink:#12513A;
+  --warn:#A66A12; --warn-soft:#F5EBDA; --crit:#9C382B; --crit-soft:#F6E4E1; --track:#E4E9E6;
+  --s1:#1D6B4C; --s2:#3E8FB0; --s3:#C08A2E; --s4:#8A5BA8; --s5:#C2573F; --s6:#5E8C3A; --s7:#7A8791; --s8:#B3547F; --s9:#2F5D8A; --s10:#9A7B4F;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ground:#0F1412; --surface:#161E1A; --surface-2:#1C2723; --ink:#E5ECE7; --ink-2:#BECAC4; --muted:#8B9E95;
+    --rule:#2A3833; --rule-soft:#212D28; --accent:#55BC8C; --accent-soft:#152B22; --accent-ink:#7FD2AB;
+    --warn:#D9A253; --warn-soft:#2C2416; --crit:#E08272; --crit-soft:#2E1B18; --track:#232F2A;
+    --s1:#55BC8C; --s2:#6BB6D6; --s3:#E0B055; --s4:#B78AD4; --s5:#E0836B; --s6:#8FC06A; --s7:#9AA7B0; --s8:#DB85AB; --s9:#6F9FD0; --s10:#C4A77A;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:"Source Serif 4",Georgia,serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding:0 20px 80px}
+h1,h2,h3,.kpi-v{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+.mono,th,td.n,.chip,.eyebrow,.meta,.tabs button{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+td.n,.kpi-v{font-variant-numeric:tabular-nums}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px;padding:30px 0 14px;border-bottom:2px solid var(--ink)}
+h1{font-size:1.9rem;font-weight:800;letter-spacing:-.03em;margin:0;line-height:1}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600;margin:0 0 8px}
+.meta{font-size:12px;color:var(--muted)} .meta b{color:var(--ink);font-weight:600}
+.meta button{font:inherit;background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;padding:0}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;margin:0 0 24px;border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--ground);z-index:5;padding-top:8px}
+.tabs button{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;padding:10px 14px;border:0;background:none;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
+.tabs button .cnt{display:inline-block;margin-left:6px;background:var(--warn-soft);color:var(--warn);border-radius:2px;padding:0 5px;font-size:10.5px}
+section{margin:0 0 34px}
+h2{font-size:.92rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:0 0 4px}
+.h2-rule{height:1px;background:var(--ink);opacity:.85;margin:0 0 14px}
+.sub{font-size:13px;color:var(--muted);margin:-6px 0 14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1px;background:var(--surface);border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.kpis .kpi{box-shadow:0 0 0 1px var(--rule)}
+.kpi{background:var(--surface);padding:14px 14px 12px}
+.kpi-l{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+.kpi-v{font-size:1.65rem;font-weight:800;letter-spacing:-.03em;line-height:1}
+.kpi-s{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted);margin-top:6px}
+.kpi.good .kpi-v{color:var(--accent-ink)} .kpi.bad .kpi-v{color:var(--crit)} .kpi.warn .kpi-v{color:var(--warn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:16px 18px}
+.card h3{font-size:.95rem;font-weight:700;margin:0 0 10px}
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--surface)}
+.tw.tall{max-height:560px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;min-width:560px}
+th{text-align:left;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--rule);background:var(--surface-2);white-space:nowrap;position:sticky;top:0}
+th.sort{cursor:pointer} th.sort:hover{color:var(--ink)} th.asc::after{content:" ↑"} th.desc::after{content:" ↓"}
+td{padding:8px 12px;border-bottom:1px solid var(--rule-soft);font-size:14px;vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tr.tot td{font-weight:700;border-top:1px solid var(--rule);background:var(--surface-2)}
+th.n,td.n{text-align:right;font-size:13px;white-space:nowrap}
+td.name{font-weight:600}
+td.dim,span.dim{color:var(--muted);font-size:12.5px}
+.chip{display:inline-block;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:2px;white-space:nowrap}
+.chip.ok{background:var(--accent-soft);color:var(--accent-ink)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.bad{background:var(--crit-soft);color:var(--crit)} .chip.mute{background:var(--surface-2);color:var(--muted)}
+.bars{display:flex;flex-direction:column;gap:6px}
+.bar-row{display:grid;grid-template-columns:140px 1fr 130px;gap:12px;align-items:center}
+.bar-lab{font-size:13px;color:var(--ink-2)} .bar-track{height:14px;background:var(--track);border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;background:var(--accent)}
+.bar-fig{font-family:"IBM Plex Mono",monospace;font-size:12px;text-align:right;color:var(--muted)} .bar-fig b{color:var(--ink)}
+.chart{height:260px;position:relative} .chart.sm{height:220px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.tools input,.tools select,td select,td input{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--rule);border-radius:3px;background:var(--surface);color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.seg button{font-family:"IBM Plex Mono",monospace;font-size:11.5px;padding:6px 10px;border:0;background:var(--surface);color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--ink);color:var(--ground)}
+.note{font-size:13px;color:var(--ink-2);background:var(--surface-2);border-left:3px solid var(--accent);padding:10px 14px;border-radius:2px;margin:0 0 16px}
+.note.warn{border-left-color:var(--warn)}
+#login{max-width:440px;margin:90px auto;background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:28px}
+#login input{width:100%;font:inherit;padding:10px;border:1px solid var(--rule);border-radius:3px;background:var(--ground);color:var(--ink);margin:8px 0 12px}
+#login input.code{font-family:"IBM Plex Mono",monospace;font-size:1.4rem;letter-spacing:.3em;text-align:center}
+.btn{font:inherit;font-weight:600;padding:10px 16px;border:0;border-radius:3px;background:var(--accent);color:#fff;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.err{color:var(--crit);font-size:13px;min-height:1em}
+.hint{color:var(--muted);font-size:12.5px}
+footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted)}
+.cohort td.n{font-weight:600}
+@media (max-width:600px){ .kpis{grid-template-columns:1fr 1fr} .kpi-v{font-size:1.3rem} .wrap{padding:0 16px 60px} .bar-row{grid-template-columns:100px 1fr 90px} h1{font-size:1.5rem} }
+</style>
+</head>
+<body>
+
+<div id="login" hidden>
+  <p class="eyebrow">Futbol Factory</p>
+  <h1 style="font-size:1.4rem">Money dashboard</h1>
+  <div id="step-email">
+    <p class="hint">We'll email you a 6-digit sign-in code.</p>
+    <input id="em" type="email" value="john@futbol-factory.com" autocomplete="email">
+    <button class="btn" id="send">Send code</button>
+  </div>
+  <div id="step-code" hidden>
+    <p class="hint">Enter the code from your email. It expires in 10 minutes.</p>
+    <input id="code" class="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••">
+    <button class="btn" id="verify">Sign in</button>
+    <button class="btn" id="back" style="background:none;color:var(--muted)">Use a different email</button>
+  </div>
+  <p class="err" id="login-err"></p>
+</div>
+
+<div class="wrap" id="app" hidden>
+<header>
+  <div><p class="eyebrow">Futbol Factory · money</p><h1 id="title">Loading…</h1></div>
+  <div class="meta" id="hdr"></div>
+</header>
+<nav class="tabs" id="tabs"></nav>
+
+<!-- ============ OVERVIEW ============ -->
+<div class="tab" id="t-overview">
+  <section><div class="kpis" id="ov-kpis"></div></section>
+  <div class="note" id="ov-note">Money out (expenses, profit, owner pay, cash in the bank) arrives in phase 2, when QuickBooks is connected. Everything here is money in, from Stripe.</div>
+  <section>
+    <div class="grid2">
+      <div class="card"><h3>Money in by month</h3><p class="hint" style="margin:-6px 0 8px">Cash collected (bars) vs earned (line: upfront plans spread over the months they cover)</p><div class="chart"><canvas id="c-ov-rev"></canvas></div></div>
+      <div class="card"><h3>Members by month</h3><p class="hint" style="margin:-6px 0 8px">Joined and came back (up), cancelled (down), active at month end (line)</p><div class="chart"><canvas id="c-ov-mem"></canvas></div></div>
+    </div>
+  </section>
+  <section><div class="grid2">
+    <div class="card"><h3>Coming up</h3><div id="ov-upcoming"></div></div>
+    <div class="card"><h3>Needs attention</h3><div id="ov-attn"></div></div>
+  </div></section>
+</div>
+
+<!-- ============ MEMBERS ============ -->
+<div class="tab" id="t-members" hidden>
+  <section><div class="kpis" id="m-kpis"></div></section>
+
+  <section>
+    <h2>Renewal radar</h2><div class="h2-rule"></div>
+    <p class="sub">Members whose 3/6/12-month commitment ends soon. Most cancellations happen right here, so reach out 2-3 weeks before. "At stake" is one more term at their current monthly value.</p>
+    <div class="tools"><div class="seg" id="radar-win"><button data-d="30" class="on">30 days</button><button data-d="60">60 days</button><button data-d="90">90 days</button></div><span class="hint" id="radar-sum"></span></div>
+    <div class="tw"><table id="radar"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Failed and past-due payments</h2><div class="h2-rule"></div>
+    <p class="sub">Open Stripe invoices with money still owed. Old ones may be dead invoices worth voiding in Stripe.</p>
+    <div class="tw"><table id="pastdue"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Active members</h2><div class="h2-rule"></div>
+    <p class="sub">Click a column to sort. <b>Monthly</b> = what they're worth per month (upfront plans spread over their term). <b>Remaining</b> = payments still to come inside their current commitment. <b>Lifetime</b> = paid so far + expected future, based on how long members like them usually stay.</p>
+    <div class="tools"><input id="m-search" placeholder="Search name or email" style="min-width:220px"><select id="m-status"><option value="live">Active + ending</option><option value="active">Active only</option><option value="ending">Ending (cancel scheduled)</option><option value="lapsed">Lapsed (could still renew)</option></select><span class="hint" id="m-count"></span></div>
+    <div class="tw tall"><table id="active"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="grid2">
+      <div class="card"><h3>Signups and cancels by month</h3><div class="chart"><canvas id="c-mem"></canvas></div></div>
+      <div class="card"><h3>Plan mix (active members)</h3><div id="mix"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cohorts</h2><div class="h2-rule"></div>
+    <p class="sub">Families grouped by the month they first joined: what share were still members 3, 6 and 12 months later. Blank = not enough time has passed yet.</p>
+    <div class="tw"><table id="cohorts" class="cohort"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Trials</h2><div class="h2-rule"></div>
+    <div class="kpis" id="tr-kpis" style="margin-bottom:16px"></div>
+    <div class="grid2">
+      <div class="card"><h3>Trials and joins by month</h3><div class="chart sm"><canvas id="c-trials"></canvas></div></div>
+      <div class="card"><h3>Join rate by lead source (last 12 months)</h3><div class="bars" id="tr-src"></div></div>
+    </div>
+    <div class="tools" style="margin-top:16px"><input id="tr-search" placeholder="Search trials" style="min-width:220px"><select id="tr-f"><option value="">All trials</option><option value="1">Joined</option><option value="0">Didn't join</option></select></div>
+    <div class="tw tall"><table id="trials"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Past members</h2><div class="h2-rule"></div>
+    <p class="sub">Everyone who left. Add the reason when you know it (from Jonas, CoachIQ, or texts). It's saved and feeds the churn-reason chart. <b>Won back</b> = left once and came back.</p>
+    <div class="grid2" style="margin-bottom:16px">
+      <div class="card"><h3>Why people left</h3><div class="bars" id="reasons"></div></div>
+      <div class="card"><h3>Cancels by tenure</h3><div class="chart sm"><canvas id="c-tenure"></canvas></div></div>
+    </div>
+    <div class="tools"><input id="p-search" placeholder="Search past members" style="min-width:220px"><select id="p-f"><option value="">All past members</option><option value="noreason">No reason yet</option><option value="won">Won back at least once</option></select></div>
+    <div class="tw tall"><table id="past"><thead></thead><tbody></tbody></table></div>
+  </section>
+</div>
+
+<!-- ============ REVENUE ============ -->
+<div class="tab" id="t-revenue" hidden>
+  <section><div class="kpis" id="r-kpis"></div></section>
+  <section>
+    <div class="tools"><div class="seg" id="r-mode"><button data-m="cash" class="on">Cash collected</button><button data-m="earned">Earned</button></div><div class="seg" id="r-range"><button data-r="12" class="on">12 months</button><button data-r="24">24 months</button><button data-r="99">All time</button></div></div>
+    <div class="card"><h3 id="r-title">Revenue by source</h3><div class="chart" style="height:320px"><canvas id="c-rev"></canvas></div></div>
+  </section>
+  <section>
+    <h2>By source, by month</h2><div class="h2-rule"></div>
+    <p class="sub">Group, private and hybrid are memberships. Rentals are Stripe charges with "Rental" in the description. "Other" is one-offs not yet labelled (see the Unsorted tab). Refunds come out in the month they happened.</p>
+    <div class="tw"><table id="r-table"><thead></thead><tbody></tbody></table></div>
+  </section>
+</div>
+
+<!-- ============ FORECAST ============ -->
+<div class="tab" id="t-forecast" hidden>
+  <section><div class="kpis" id="f-kpis"></div></section>
+  <div class="note">Money in only, for now. <b>On the books</b> = payments Stripe will take inside members' current commitments. <b>Likely renewals</b> = each member's monthly value × the chance they're still here that month, from your own history. Costs, the SBA loan and Franklin join this chart in phase 3.</div>
+  <section><div class="card"><h3>Expected money in, next 12 months</h3><div class="chart" style="height:320px"><canvas id="c-fc"></canvas></div></div></section>
+  <section><div class="tw"><table id="f-table"><thead></thead><tbody></tbody></table></div></section>
+</div>
+
+<!-- ============ UNSORTED ============ -->
+<div class="tab" id="t-unsorted" hidden>
+  <p class="sub" style="margin:0 0 14px">Stripe charges the automatic rules couldn't place. Pick what each one is and it's saved straight away; totals update on the next nightly rebuild. Name future rentals "... Rental" and they'll sort themselves.</p>
+  <div class="tw tall"><table id="unsorted"><thead></thead><tbody></tbody></table></div>
+</div>
+
+<!-- ============ HEALTH ============ -->
+<div class="tab" id="t-health" hidden>
+  <section><h2>Data jobs</h2><div class="h2-rule"></div><div class="tw"><table id="health"><thead><tr><th>Job</th><th>Status</th><th class="n">Last run</th><th>Detail</th></tr></thead><tbody></tbody></table></div></section>
+  <section><h2>How the numbers are built</h2><div class="h2-rule"></div><div class="card" id="method" style="font-size:14px"></div></section>
+</div>
+
+<footer id="foot"></footer>
+</div>
+
+<script>
+const SB_URL = "https://fsbzdnstyvsyirlcyjiw.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZzYnpkbnN0eXZzeWlybGN5aml3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5OTE2OTQsImV4cCI6MjA5MjU2NzY5NH0.fXJbBr3xgBl5hBZgzHxlCEt8-d7XWbdMEMj1eKzmfDs";
+const API = SB_URL + "/functions/v1/ff-finance";
+const sb = supabase.createClient(SB_URL, SB_ANON, { auth: { persistSession: true, autoRefreshToken: true, storageKey: "ff-finance-auth" } });
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = (x) => Number(x) || 0;
+const fmt$ = (x, d=0) => x == null || x === "" ? "—" : (x < 0 ? "−$" : "$") + Math.abs(Number(x)).toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtK = (x) => Math.abs(x) >= 10000 ? (x<0?"−":"") + "$" + (Math.abs(x)/1000).toFixed(1) + "K" : fmt$(x);
+const fmtN = (x) => x == null ? "—" : Number(x).toLocaleString();
+const pct = (n, d) => d ? Math.round(100*n/d) + "%" : "—";
+const sum = (rows, k) => rows.reduce((a, r) => a + num(typeof k === "function" ? k(r) : r[k]), 0);
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const TODAY = new Date(); const todayStr = TODAY.toLocaleDateString("en-CA", {timeZone:"America/Chicago"});
+const addDays = (s, n) => { const d = new Date(s + "T12:00:00"); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+const mLabel = (m) => new Date(m.slice(0,7) + "-15").toLocaleDateString(undefined, {month:"short", year:"2-digit"});
+const dLabel = (s) => s ? new Date(s.slice(0,10) + "T12:00:00").toLocaleDateString(undefined, {month:"short", day:"numeric", year: s.slice(0,4) === todayStr.slice(0,4) ? undefined : "2-digit"}) : "—";
+const curMonth = todayStr.slice(0,7) + "-01";
+const FAM_LABEL = { group:"Group", private:"Private", hybrid:"Hybrid", trial:"Trials", session:"Session packs", camp:"Camps", clinic:"Clinics", rental:"Rentals", futsal:"Futsal", online:"Online", freeze:"Freeze fees", membership:"Membership (legacy)", other:"Other / unsorted" };
+const FAM_ORDER = ["group","private","hybrid","membership","trial","session","clinic","camp","rental","futsal","online","freeze","other"];
+const famColor = (f) => cssVar("--s" + ((FAM_ORDER.indexOf(f) % 10) + 1));
+const REASONS = ["Moved away","Cost / money","Schedule / too busy","Other sport or season","Joined a club / team training","Lost interest","Injury","Coach fit","Distance / travel","Finished goal","Unknown"];
+let D = null;
+
+// ---------------------------------------------------------------- auth
+function showLogin(msg){ $("#login").hidden = false; $("#app").hidden = true; $("#login-err").textContent = msg || ""; }
+$("#send").onclick = async () => {
+  const email = $("#em").value.trim().toLowerCase(); if (!email) return;
+  $("#send").disabled = true; $("#login-err").textContent = "";
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  $("#send").disabled = false;
+  if (error) return ($("#login-err").textContent = error.message.includes("Signups not allowed") ? "That email doesn't have access." : error.message);
+  $("#step-email").hidden = true; $("#step-code").hidden = false; $("#code").focus();
+};
+$("#verify").onclick = async () => {
+  const email = $("#em").value.trim().toLowerCase(), token = $("#code").value.trim();
+  $("#verify").disabled = true;
+  const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
+  $("#verify").disabled = false;
+  if (error) return ($("#login-err").textContent = "That code didn't work. Check it or send a new one.");
+  load();
+};
+$("#code").addEventListener("keydown", e => { if (e.key === "Enter") $("#verify").click(); });
+$("#back").onclick = () => { $("#step-email").hidden = false; $("#step-code").hidden = true; };
+
+async function api(method, body){
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { showLogin(""); throw new Error("signed out"); }
+  const r = await fetch(API, { method, headers: { Authorization: "Bearer " + session.access_token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { await sb.auth.signOut(); showLogin("Please sign in again."); throw new Error("401"); }
+  if (r.status === 403) { await sb.auth.signOut(); showLogin("That account doesn't have access to this dashboard."); throw new Error("403"); }
+  if (!r.ok) throw new Error("feed error " + r.status);
+  return r.json();
+}
+async function load(){
+  try { D = await api("GET"); } catch (e) { if (!["401","403","signed out"].includes(e.message)) showLogin("Couldn't load the data (" + e.message + "). Try again in a minute."); return; }
+  $("#login").hidden = true; $("#app").hidden = false;
+  render();
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["overview","Overview"],["members","Members"],["revenue","Revenue"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
+function tabs(){
+  const cnt = { unsorted: D.unsorted.length };
+  $("#tabs").innerHTML = TABS.map(([k,l]) => `<button data-t="${k}">${l}${cnt[k] ? `<span class="cnt">${cnt[k]}</span>` : ""}</button>`).join("");
+  let cur = "overview"; try { cur = localStorage.getItem("ff-fin-tab") || cur; } catch(e){}
+  if (!TABS.some(t => t[0] === cur)) cur = "overview";
+  $("#tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.t); };
+  show(cur);
+}
+function show(k){
+  document.querySelectorAll(".tab").forEach(t => t.hidden = t.id !== "t-" + k);
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === k));
+  try { localStorage.setItem("ff-fin-tab", k); } catch(e){}
+  requestAnimationFrame(() => Object.values(charts).forEach(c => { if (c.canvas.offsetParent) { c.resize(); c.update("none"); } }));
+}
+
+// ---------------------------------------------------------------- helpers
+const charts = {};
+function chart(id, cfg){
+  if (charts[id]) charts[id].destroy();
+  Chart.defaults.color = cssVar("--muted"); Chart.defaults.font.family = '"IBM Plex Mono", monospace'; Chart.defaults.font.size = 11;
+  charts[id] = new Chart(document.getElementById(id), { ...cfg, options: { maintainAspectRatio:false, responsive:true, interaction:{ mode:"index", intersect:false },
+    plugins:{ legend:{ display:true, labels:{ boxWidth:10 } }, tooltip:{ callbacks: cfg.money ? { label: (c) => `${c.dataset.label}: ${fmt$(c.parsed.y)}` } : {} } }, ...cfg.options } });
+}
+function bar(label, n, dn, fig){
+  const w = dn ? Math.min(100, 100*n/dn) : 0;
+  return `<div class="bar-row"><span class="bar-lab">${label}</span><span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span><span class="bar-fig">${fig}</span></div>`;
+}
+// sortable table: cols = [{k, l, n(bool numeric), f(row)->html, v(row)->sort value}]
+function table(sel, rows, cols, opts={}){
+  const el = $(sel); const st = el._sort || { k: opts.sort, dir: opts.dir || -1 };
+  el._sort = st;
+  const col = cols.find(c => c.k === st.k);
+  const sorted = col ? [...rows].sort((a,b) => { const va = col.v ? col.v(a) : a[col.k], vb = col.v ? col.v(b) : b[col.k];
+    if (va == null && vb == null) return 0; if (va == null) return 1; if (vb == null) return -1;
+    return (va > vb ? 1 : va < vb ? -1 : 0) * st.dir; }) : rows;
+  el.querySelector("thead").innerHTML = "<tr>" + cols.map(c => `<th class="sort ${c.n?"n":""} ${st.k===c.k?(st.dir>0?"asc":"desc"):""}" data-k="${c.k}">${c.l}</th>`).join("") + "</tr>";
+  el.querySelector("tbody").innerHTML = sorted.length ? sorted.slice(0, opts.limit || 2000).map(r => "<tr>" + cols.map(c => `<td class="${c.n?"n":""} ${c.cls||""}">${c.f ? c.f(r) : esc(r[c.k] ?? "—")}</td>`).join("") + "</tr>").join("") + (opts.total ? opts.total(sorted) : "")
+    : `<tr><td colspan="${cols.length}" class="dim">${opts.empty || "Nothing here."}</td></tr>`;
+  el.querySelector("thead").onclick = (e) => { const th = e.target.closest("th"); if (!th) return; st.dir = st.k === th.dataset.k ? -st.dir : (cols.find(c=>c.k===th.dataset.k)?.n ? -1 : 1); st.k = th.dataset.k; table(sel, rows, cols, opts); };
+}
+function seg(sel, cb){ $(sel).onclick = (e) => { const b = e.target.closest("button"); if (!b) return; $(sel).querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); cb(b.dataset); }; }
+const statusChip = (s) => ({active:'<span class="chip ok">active</span>', ending:'<span class="chip warn">ending</span>', lapsed:'<span class="chip bad">lapsed</span>', past:'<span class="chip mute">past</span>'}[s] || esc(s));
+const famName = (f) => FAM_LABEL[f] || f;
+const plan = (p) => esc(String(p ?? "—").replace(/\s*\(Dynamic:[^)]*\)/gi, ""));
+const src = (r) => esc(r.lead_type || "—") + (r.ad_name ? `<br><span class="dim">${esc(r.ad_name)}</span>` : "");
+const who = (r) => `${esc(r.name || "(no name)")}${r.email ? `<br><span class="dim">${esc(r.email)}</span>` : ""}`;
+
+// ---------------------------------------------------------------- render
+function render(){
+  const gen = new Date(D.generated_at);
+  $("#title").textContent = TODAY.toLocaleDateString(undefined, {weekday:"long", month:"long", day:"numeric"});
+  $("#hdr").innerHTML = `Signed in as <b>${esc(D.viewer)}</b> · data rebuilt nightly · <button id="out">sign out</button> · <button id="rl">refresh</button>`;
+  $("#out").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+  $("#rl").onclick = () => load();
+  tabs();
+  const live = D.members.filter(m => m.status === "active" || m.status === "ending");
+  renderOverview(live); renderMembers(live); renderRevenue(); renderForecast(); renderUnsorted(); renderHealth();
+  $("#foot").textContent = `Private: only signed-in, approved accounts can load this data. Generated ${gen.toLocaleString()}.`;
+}
+
+// ---- revenue helpers
+function revByMonth(mode){
+  const by = {}; D.revenue.forEach(r => { (by[r.month] ||= {})[r.family] = (by[r.month][r.family]||0) + num(r[mode]); }); return by;
+}
+function monthsBack(n){ const out = []; const d = new Date(curMonth + "T12:00:00"); for (let i=n-1;i>=0;i--){ const x = new Date(d); x.setMonth(x.getMonth()-i); out.push(x.toISOString().slice(0,7) + "-01"); } return out; }
+const tot = (o) => Object.values(o || {}).reduce((a,b)=>a+b,0);
+
+function renderOverview(live){
+  const cash = revByMonth("cash"), earned = revByMonth("earned");
+  const dom = +todayStr.slice(8,10);
+  const lastM = monthsBack(2)[0];
+  const ytd = Object.entries(cash).filter(([m]) => m.slice(0,4) === todayStr.slice(0,4)).reduce((a,[,o]) => a + tot(o), 0);
+  const lytd = Object.entries(cash).filter(([m]) => m.slice(0,4) === String(+todayStr.slice(0,4)-1) && m.slice(5,7) <= todayStr.slice(5,7)).reduce((a,[,o]) => a + tot(o), 0);
+  const mrr = sum(live, "monthly_value");
+  const next30 = live.filter(m => m.next_payment_date && m.next_payment_date <= addDays(todayStr, 30));
+  const pastDue = sum(D.openInvoices, "amount_remaining");
+  const k = [
+    ["Collected this month", fmt$(tot(cash[curMonth])), `${fmt$(tot(cash[lastM]))} all of last month`, ""],
+    ["Year to date", fmtK(ytd), lytd ? `${ytd >= lytd ? "+" : ""}${Math.round(100*(ytd-lytd)/lytd)}% vs same point last year` : "", ""],
+    ["MRR", fmt$(mrr), `${live.length} active members`, ""],
+    ["Due next 30 days", fmt$(sum(next30, "next_payment_amount")), `${next30.length} scheduled payments`, ""],
+    ["Past due", fmt$(pastDue), `${D.openInvoices.length} open invoices`, pastDue > 0 ? "warn" : ""],
+    ["Avg member lifetime", fmt$(live.length ? sum(live,"projected_lifetime")/live.length : 0), "projected, current members", ""],
+  ];
+  $("#ov-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+  const ms = monthsBack(13);
+  chart("c-ov-rev", { money:true, data:{ labels: ms.map(mLabel), datasets:[
+    { type:"bar", label:"Cash collected", data: ms.map(m => Math.round(tot(cash[m]))), backgroundColor: cssVar("--track"), borderColor: cssVar("--rule") },
+    { type:"line", label:"Earned", data: ms.map(m => Math.round(tot(earned[m]))), borderColor: cssVar("--accent"), backgroundColor: cssVar("--accent"), tension:.3, pointRadius:2 } ]},
+    options:{ scales:{ x:{ grid:{display:false} }, y:{ grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
+  memChart("c-ov-mem", 13);
+  // coming up
+  const r30 = live.filter(m => m.commitment_end && m.commitment_end <= addDays(todayStr, 30));
+  const f = D.expected[1] || D.expected[0];
+  $("#ov-upcoming").innerHTML = `<div class="bars">
+    ${bar("Payments due, 7 days", 1, 1, `<b>${fmt$(sum(live.filter(m=>m.next_payment_date && m.next_payment_date <= addDays(todayStr,7)),"next_payment_amount"))}</b>`)}
+    ${bar("Renewals, 30 days", r30.length, live.length, `<b>${r30.length}</b> families`)}
+    ${f ? bar("Expected " + mLabel(f.month), num(f.total), num(f.total), `<b>${fmt$(f.total)}</b>`) : ""}
+  </div><p class="hint" style="margin-top:10px">See Members → Renewal radar for names.</p>`;
+  const lapsed = D.members.filter(m => m.status === "lapsed");
+  const attn = [
+    pastDue > 0 && `<b>${fmt$(pastDue)}</b> past due across ${D.openInvoices.length} invoices`,
+    lapsed.length && `<b>${lapsed.length}</b> families lapsed in the last 45 days and could still renew: ${lapsed.slice(0,6).map(m=>esc(m.name||"?")).join(", ")}${lapsed.length>6?"…":""}`,
+    D.members.filter(m => m.status === "ending").length && `<b>${D.members.filter(m => m.status === "ending").length}</b> members have a cancellation scheduled`,
+    D.unsorted.length && `<b>${D.unsorted.length}</b> Stripe charges need a label (Unsorted tab)`,
+  ].filter(Boolean);
+  $("#ov-attn").innerHTML = attn.length ? `<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${attn.map(a=>`<li>${a}</li>`).join("")}</ul>` : `<p class="hint">Nothing urgent.</p>`;
+}
+
+function memChart(id, n){
+  const ms = monthsBack(n); const by = Object.fromEntries(D.monthly.map(r => [r.month, r]));
+  chart(id, { data:{ labels: ms.map(mLabel), datasets:[
+    { type:"bar", label:"New", data: ms.map(m => by[m]?.new_members ?? 0), backgroundColor: cssVar("--accent"), stack:"s" },
+    { type:"bar", label:"Came back", data: ms.map(m => by[m]?.returning_members ?? 0), backgroundColor: cssVar("--s2"), stack:"s" },
+    { type:"bar", label:"Cancelled", data: ms.map(m => -(by[m]?.churned ?? 0)), backgroundColor: cssVar("--crit"), stack:"s" },
+    { type:"line", label:"Active (end of month)", data: ms.map(m => by[m]?.active_end ?? null), borderColor: cssVar("--ink-2"), backgroundColor: cssVar("--ink-2"), tension:.25, pointRadius:2, yAxisID:"y1" } ]},
+    options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, title:{display:true,text:"families"} }, y1:{ position:"right", grid:{ drawOnChartArea:false }, beginAtZero:true, title:{display:true,text:"active"} } } } });
+}
+
+function renderMembers(live){
+  const act = live.filter(m => m.status === "active"), ending = live.filter(m => m.status === "ending"), lapsed = D.members.filter(m => m.status === "lapsed");
+  const mrr = sum(live, "monthly_value");
+  const k = [
+    ["Active members", fmtN(live.length), `${act.length} active · ${ending.length} ending`, ""],
+    ["MRR", fmt$(mrr), `avg ${fmt$(live.length ? mrr/live.length : 0)} / member / month`, ""],
+    ["Remaining on contracts", fmt$(sum(live,"remaining_contract")), "scheduled inside current terms", ""],
+    ["Avg paid to date", fmt$(live.length ? sum(live,"paid_to_date")/live.length : 0), "current members", ""],
+    ["Avg projected lifetime", fmt$(live.length ? sum(live,"projected_lifetime")/live.length : 0), "paid + expected future", ""],
+    ["Lapsed, could renew", fmtN(lapsed.length), "ended in last 45 days", lapsed.length ? "warn" : ""],
+  ];
+  $("#m-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+
+  // renewal radar
+  const radar = (days) => {
+    const rows = live.filter(m => m.commitment_end && m.commitment_end <= addDays(todayStr, days)).map(m => ({ ...m, at_stake: num(m.monthly_value) * (m.term_months || 3) }));
+    $("#radar-sum").textContent = `${rows.length} families · ${fmt$(sum(rows,"at_stake"))} at stake`;
+    table("#radar", rows, [
+      { k:"commitment_end", l:"Commitment ends", f: r => `<b>${dLabel(r.commitment_end)}</b>` },
+      { k:"name", l:"Family", f: who, cls:"name" },
+      { k:"status", l:"Status", f: r => statusChip(r.status) },
+      { k:"plan_name", l:"Plan", f: r => `${plan(r.plan_name)}<br><span class="dim">${r.term_months}-mo · ${r.cadence}</span>` },
+      { k:"tenure_months", l:"Tenure", n:true, f: r => `${r.tenure_months} mo` },
+      { k:"monthly_value", l:"Monthly", n:true, f: r => fmt$(r.monthly_value) },
+      { k:"at_stake", l:"At stake", n:true, f: r => fmt$(r.at_stake) },
+      { k:"phone", l:"Phone", f: r => esc(r.phone || "—") },
+    ], { sort:"commitment_end", dir:1, empty:"No commitments ending in this window." });
+  };
+  radar(30); seg("#radar-win", (ds) => radar(+ds.d));
+
+  // past due
+  table("#pastdue", D.openInvoices, [
+    { k:"customer_name", l:"Family", f: r => who({ name: r.customer_name, email: r.customer_email }), cls:"name" },
+    { k:"amount_remaining", l:"Owed", n:true, f: r => `<b>${fmt$(r.amount_remaining, 2)}</b>` },
+    { k:"created_at", l:"Invoice date", f: r => dLabel(r.created_at) },
+    { k:"attempt_count", l:"Card attempts", n:true },
+    { k:"next_payment_attempt", l:"Next retry", f: r => r.next_payment_attempt ? dLabel(r.next_payment_attempt) : '<span class="dim">none (needs action)</span>' },
+    { k:"description", l:"What", f: r => `<span class="dim">${esc(r.description || "")}</span>` },
+  ], { sort:"created_at", dir:-1, empty:"No past-due invoices. 🎉",
+       total: rows => `<tr class="tot"><td>Total</td><td class="n">${fmt$(sum(rows,"amount_remaining"),2)}</td><td colspan="4"></td></tr>` });
+
+  // active table
+  const cols = [
+    { k:"name", l:"Family", f: who, cls:"name" },
+    { k:"status", l:"Status", f: r => statusChip(r.status) + (r.past_due > 0 ? ` <span class="chip bad">owes ${fmt$(r.past_due)}</span>` : "") },
+    { k:"plan_name", l:"Plan", f: r => `${plan(r.plan_name)}<br><span class="dim">${famName(r.product_family)} · ${r.term_months}-mo · ${r.cadence}${r.coupon ? " · " + esc(r.coupon) : ""}</span>` },
+    { k:"first_joined", l:"Joined", f: r => dLabel(r.first_joined) + (r.won_back ? ' <span class="chip mute">returned</span>' : "") },
+    { k:"tenure_months", l:"Tenure", n:true, f: r => `${r.tenure_months} mo` },
+    { k:"monthly_value", l:"Monthly", n:true, f: r => fmt$(r.monthly_value) },
+    { k:"paid_to_date", l:"Paid to date", n:true, f: r => fmt$(r.paid_to_date) },
+    { k:"remaining_contract", l:"Remaining", n:true, f: r => fmt$(r.remaining_contract) },
+    { k:"projected_lifetime", l:"Lifetime", n:true, f: r => fmt$(r.projected_lifetime) },
+    { k:"next_payment_date", l:"Next payment", f: r => r.next_payment_date ? `${dLabel(r.next_payment_date)}<br><span class="dim">${fmt$(r.next_payment_amount, 2)}</span>` : `<span class="dim">none scheduled</span>` },
+    { k:"commitment_end", l:"Term ends", f: r => dLabel(r.commitment_end) },
+    { k:"lead_type", l:"Came from", f: src },
+  ];
+  const drawActive = () => {
+    const q = $("#m-search").value.trim().toLowerCase(), st = $("#m-status").value;
+    const pool = st === "lapsed" ? D.members.filter(m => m.status === "lapsed") : st === "live" ? live : live.filter(m => m.status === st);
+    const rows = pool.filter(m => !q || (m.name||"").toLowerCase().includes(q) || (m.email||"").toLowerCase().includes(q));
+    $("#m-count").textContent = `${rows.length} families · ${fmt$(sum(rows,"monthly_value"))}/mo`;
+    table("#active", rows, cols, { sort:"monthly_value", dir:-1,
+      total: rs => `<tr class="tot"><td colspan="5">Total (${rs.length})</td><td class="n">${fmt$(sum(rs,"monthly_value"))}</td><td class="n">${fmt$(sum(rs,"paid_to_date"))}</td><td class="n">${fmt$(sum(rs,"remaining_contract"))}</td><td class="n">${fmt$(sum(rs,"projected_lifetime"))}</td><td colspan="3"></td></tr>` });
+  };
+  $("#m-search").oninput = drawActive; $("#m-status").onchange = drawActive; drawActive();
+
+  memChart("c-mem", 24);
+
+  // plan mix
+  const grp = (f) => { const m = {}; live.forEach(r => { const k = f(r); m[k] = m[k] || {n:0, v:0}; m[k].n++; m[k].v += num(r.monthly_value); }); return Object.entries(m).sort((a,b)=>b[1].n-a[1].n); };
+  const block = (title, rows) => `<p class="hint" style="margin:10px 0 6px">${title}</p><div class="bars">` + rows.map(([k,o]) => bar(esc(k), o.n, live.length, `<b>${o.n}</b> · ${fmt$(o.v)}/mo`)).join("") + "</div>";
+  $("#mix").innerHTML = block("Program", grp(r => famName(r.product_family))) + block("Commitment", grp(r => (r.term_months || "?") + " months")) +
+    block("How they pay", grp(r => r.cadence === "upfront" ? "Upfront" : "Monthly")) + block("Discount", grp(r => r.coupon ? "Has a coupon" : "Full price"));
+
+  // cohorts
+  const cellPct = (n, e) => e ? `<span style="color:${n/e >= .7 ? cssVar("--accent-ink") : n/e < .4 ? cssVar("--crit") : cssVar("--ink")}">${pct(n,e)}</span>` : '<span class="dim">·</span>';
+  const coh = [...D.cohorts].reverse();
+  table("#cohorts", coh, [
+    { k:"cohort_month", l:"Joined in", f: r => `<b>${mLabel(r.cohort_month)}</b>` },
+    { k:"joined", l:"Families", n:true },
+    { k:"m3", l:"After 3 mo", n:true, v: r => r.m3_eligible ? r.m3/r.m3_eligible : null, f: r => cellPct(r.m3, r.m3_eligible) },
+    { k:"m6", l:"After 6 mo", n:true, v: r => r.m6_eligible ? r.m6/r.m6_eligible : null, f: r => cellPct(r.m6, r.m6_eligible) },
+    { k:"m12", l:"After 12 mo", n:true, v: r => r.m12_eligible ? r.m12/r.m12_eligible : null, f: r => cellPct(r.m12, r.m12_eligible) },
+    { k:"active_now", l:"Still here today", n:true, f: r => `${r.active_now} <span class="dim">(${pct(r.active_now, r.joined)})</span>` },
+  ], { sort:"cohort_month", dir:-1,
+       total: rs => { const t = (k) => sum(rs,k); return `<tr class="tot"><td>All</td><td class="n">${t("joined")}</td><td class="n">${pct(t("m3"),t("m3_eligible"))}</td><td class="n">${pct(t("m6"),t("m6_eligible"))}</td><td class="n">${pct(t("m12"),t("m12_eligible"))}</td><td class="n">${t("active_now")} (${pct(t("active_now"),t("joined"))})</td></tr>`; } });
+
+  // trials
+  const T = D.trials; const since = (d) => T.filter(t => t.trial_date >= addDays(todayStr, -d));
+  const t30 = since(30), t90 = since(90), t365 = since(365);
+  const joinedDays = T.filter(t => t.joined && t.days_to_join != null).map(t => t.days_to_join).sort((a,b)=>a-b);
+  const tk = [
+    ["Trials, 30 days", fmtN(t30.length), `${t30.filter(t=>t.joined).length} joined so far`, ""],
+    ["Trials, 90 days", fmtN(t90.length), `${pct(t90.filter(t=>t.joined).length, t90.length)} joined`, ""],
+    ["Join rate, 12 months", pct(t365.filter(t=>t.joined).length, t365.length), `${t365.filter(t=>t.joined).length} of ${t365.length}`, ""],
+    ["Typical time to join", joinedDays.length ? joinedDays[Math.floor(joinedDays.length/2)] + " days" : "—", "median, trial → first payment", ""],
+    ["Trial revenue, 12 mo", fmt$(sum(t365,"amount")), "", ""],
+  ];
+  $("#tr-kpis").innerHTML = tk.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+  const ms = monthsBack(13); const byM = Object.fromEntries(D.monthly.map(r => [r.month, r]));
+  chart("c-trials", { data:{ labels: ms.map(mLabel), datasets:[
+    { type:"bar", label:"Trials", data: ms.map(m => byM[m]?.trials ?? 0), backgroundColor: cssVar("--track"), borderColor: cssVar("--rule") },
+    { type:"bar", label:"Joined", data: ms.map(m => byM[m]?.trials_joined ?? 0), backgroundColor: cssVar("--accent") } ]},
+    options:{ scales:{ x:{ grid:{display:false} }, y:{ grid:{ color: cssVar("--rule-soft") } } } } });
+  const bySrc = {}; t365.forEach(t => { const k = t.lead_type || "not matched to a lead"; (bySrc[k] ||= {n:0,j:0}); bySrc[k].n++; if (t.joined) bySrc[k].j++; });
+  $("#tr-src").innerHTML = Object.entries(bySrc).sort((a,b)=>b[1].n-a[1].n).map(([k,o]) => bar(esc(k), o.j, o.n, `<b>${pct(o.j,o.n)}</b> · ${o.j}/${o.n}`)).join("") || "<p class='hint'>No trials.</p>";
+  const drawTrials = () => {
+    const q = $("#tr-search").value.trim().toLowerCase(), f = $("#tr-f").value;
+    const rows = T.filter(t => (!q || (t.name||"").toLowerCase().includes(q) || (t.email||"").toLowerCase().includes(q)) && (f === "" || String(+t.joined) === f));
+    table("#trials", rows, [
+      { k:"trial_date", l:"Trial", f: r => dLabel(r.trial_date) },
+      { k:"name", l:"Family", f: who, cls:"name" },
+      { k:"joined", l:"Joined?", v: r => r.joined ? 1 : 0, f: r => r.joined ? `<span class="chip ok">joined</span> <span class="dim">${r.days_to_join}d</span>` : (r.trial_date >= addDays(todayStr,-21) ? '<span class="chip warn">deciding</span>' : '<span class="chip mute">no</span>') },
+      { k:"joined_plan", l:"Plan", f: r => plan(r.joined_plan) },
+      { k:"amount", l:"Paid", n:true, f: r => fmt$(r.amount, 2) },
+      { k:"lead_type", l:"Came from", f: src },
+    ], { sort:"trial_date", dir:-1, limit: 400 });
+  };
+  $("#tr-search").oninput = drawTrials; $("#tr-f").onchange = drawTrials; drawTrials();
+
+  // past members
+  const past = D.members.filter(m => m.status === "past" || m.status === "lapsed");
+  const rc = {}; past.forEach(m => { const k = m.churn_reason || "Not recorded yet"; rc[k] = (rc[k]||0) + 1; });
+  $("#reasons").innerHTML = Object.entries(rc).sort((a,b)=>b[1]-a[1]).map(([k,n]) => bar(esc(k), n, past.length, `<b>${n}</b> · ${pct(n,past.length)}`)).join("");
+  const tb = {}; past.forEach(m => { const t = Math.min(Math.floor(num(m.tenure_months)), 24); tb[t] = (tb[t]||0) + 1; });
+  const tl = [...Array(25).keys()];
+  chart("c-tenure", { data:{ labels: tl.map(t => t === 24 ? "24+" : String(t)), datasets:[{ type:"bar", label:"Families who left, by months stayed", data: tl.map(t => tb[t]||0), backgroundColor: tl.map(t => [3,6,12].includes(t) ? cssVar("--crit") : cssVar("--track")) }] },
+    options:{ scales:{ x:{ grid:{display:false}, title:{display:true,text:"months as a member (red = 3/6/12 renewal points)"} }, y:{ grid:{ color: cssVar("--rule-soft") } } } } });
+  const opts = (cur) => `<option value="">—</option>` + REASONS.map(r => `<option ${r===cur?"selected":""}>${r}</option>`).join("") + (cur && !REASONS.includes(cur) ? `<option selected>${esc(cur)}</option>` : "");
+  const drawPast = () => {
+    const q = $("#p-search").value.trim().toLowerCase(), f = $("#p-f").value;
+    const rows = past.filter(m => (!q || (m.name||"").toLowerCase().includes(q) || (m.email||"").toLowerCase().includes(q)) && (f !== "noreason" || !m.churn_reason) && (f !== "won" || m.won_back));
+    table("#past", rows, [
+      { k:"name", l:"Family", f: who, cls:"name" },
+      { k:"status", l:"", f: r => statusChip(r.status) },
+      { k:"plan_name", l:"Last plan", f: r => `${plan(r.plan_name)}<br><span class="dim">${famName(r.product_family)} · ${r.term_months}-mo</span>` },
+      { k:"first_joined", l:"Joined", f: r => dLabel(r.first_joined) },
+      { k:"span_ended", l:"Left", f: r => dLabel(r.span_ended) },
+      { k:"tenure_months", l:"Stayed", n:true, f: r => `${r.tenure_months} mo` },
+      { k:"paid_to_date", l:"Paid total", n:true, f: r => fmt$(r.paid_to_date) },
+      { k:"won_back", l:"Won back", v: r => r.won_back ? 1 : 0, f: r => r.won_back ? `<span class="chip ok">${r.spans - 1}×</span>` : "" },
+      { k:"churn_reason", l:"Why they left", f: r => `<select data-cid="${esc(r.customer_id)}" class="reason">${opts(r.churn_reason)}</select>` },
+    ], { sort:"span_ended", dir:-1 });
+    document.querySelectorAll("select.reason").forEach(s => s.onchange = async () => {
+      s.disabled = true;
+      try { await api("POST", { action:"note", customer_id: s.dataset.cid, churn_reason: s.value }); const m = D.members.find(x => x.customer_id === s.dataset.cid); if (m) m.churn_reason = s.value || null; }
+      catch(e) { alert("Couldn't save: " + e.message); }
+      s.disabled = false;
+    });
+  };
+  $("#p-search").oninput = drawPast; $("#p-f").onchange = drawPast; drawPast();
+}
+
+function renderRevenue(){
+  let mode = "cash", range = 12;
+  const draw = () => {
+    const by = revByMonth(mode);
+    const all = Object.keys(by).filter(m => m <= curMonth).sort();
+    const ms = range >= 99 ? all : monthsBack(range);
+    const fams = FAM_ORDER.filter(f => ms.some(m => num(by[m]?.[f]) !== 0));
+    $("#r-title").textContent = `Revenue by source · ${mode === "cash" ? "cash collected" : "earned"}`;
+    chart("c-rev", { money:true, data:{ labels: ms.map(mLabel), datasets: fams.map(f => ({ type:"bar", label: famName(f), data: ms.map(m => Math.round(num(by[m]?.[f]))), backgroundColor: famColor(f), stack:"r" })) },
+      options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
+    const rows = [...ms].reverse().map(m => ({ month: m, ...Object.fromEntries(fams.map(f => [f, num(by[m]?.[f])])), total: tot(by[m]) }));
+    table("#r-table", rows, [
+      { k:"month", l:"Month", f: r => `<b>${mLabel(r.month)}</b>${r.month === curMonth ? ' <span class="dim">so far</span>' : ""}` },
+      ...fams.map(f => ({ k:f, l: famName(f), n:true, f: r => r[f] ? fmt$(r[f]) : '<span class="dim">·</span>' })),
+      { k:"total", l:"Total", n:true, f: r => `<b>${fmt$(r.total)}</b>` },
+    ], { sort:"month", dir:-1, total: rs => `<tr class="tot"><td>Total</td>${fams.map(f => `<td class="n">${fmt$(sum(rs,f))}</td>`).join("")}<td class="n">${fmt$(sum(rs,"total"))}</td></tr>` });
+  };
+  seg("#r-mode", (ds) => { mode = ds.m; draw(); }); seg("#r-range", (ds) => { range = +ds.r; draw(); }); draw();
+  // KPIs: YTD by group
+  const cash = revByMonth("cash"); const yr = todayStr.slice(0,4);
+  const ytd = {}; Object.entries(cash).forEach(([m,o]) => { if (m.slice(0,4) === yr) Object.entries(o).forEach(([f,v]) => ytd[f] = (ytd[f]||0) + v); });
+  const g = (fs) => fs.reduce((a,f) => a + (ytd[f]||0), 0); const all = tot(ytd);
+  const k = [["Total, " + yr, g(Object.keys(ytd))], ["Memberships", g(["group","private","hybrid","membership","online"])], ["Trials", g(["trial"])], ["Camps + clinics", g(["camp","clinic"])], ["Session packs", g(["session"])], ["Rentals", g(["rental"])], ["Futsal", g(["futsal"])], ["Other / unsorted", g(["other","freeze"])]];
+  $("#r-kpis").innerHTML = k.map(([l,v]) => `<div class="kpi"><p class="kpi-l">${l}</p><div class="kpi-v">${fmtK(v)}</div><div class="kpi-s">${l.startsWith("Total") ? "cash collected YTD" : pct(v, all) + " of total"}</div></div>`).join("");
+}
+
+function renderForecast(){
+  const E = D.expected;
+  const next3 = E.slice(0,3);
+  const k = [
+    ["Next 30 days (on the books)", fmt$(sum(D.members.filter(m => m.next_payment_date && m.next_payment_date <= addDays(todayStr,30)), "next_payment_amount")), "scheduled Stripe payments", ""],
+    ["Next 3 months", fmt$(sum(next3, "total")), `${fmt$(sum(next3,"scheduled"))} on the books`, ""],
+    ["Next 12 months", fmt$(sum(E, "total")), `${fmt$(sum(E,"scheduled"))} on the books`, ""],
+    ["Avg per month", fmt$(E.length ? sum(E,"total")/E.length : 0), "from current members only", ""],
+  ];
+  $("#f-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+  chart("c-fc", { money:true, data:{ labels: E.map(e => mLabel(e.month)), datasets:[
+    { type:"bar", label:"On the books", data: E.map(e => Math.round(e.scheduled)), backgroundColor: cssVar("--accent"), stack:"f" },
+    { type:"bar", label:"Likely renewals", data: E.map(e => Math.round(e.renewals)), backgroundColor: cssVar("--track"), borderColor: cssVar("--accent"), borderWidth:1, stack:"f" } ]},
+    options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
+  table("#f-table", E, [
+    { k:"month", l:"Month", f: r => `<b>${mLabel(r.month)}</b>${r.month === curMonth ? ' <span class="dim">rest of month</span>' : ""}` },
+    { k:"scheduled", l:"On the books", n:true, f: r => fmt$(r.scheduled) },
+    { k:"renewals", l:"Likely renewals", n:true, f: r => fmt$(r.renewals) },
+    { k:"total", l:"Expected total", n:true, f: r => `<b>${fmt$(r.total)}</b>` },
+  ], { sort:"month", dir:1, total: rs => `<tr class="tot"><td>12 months</td><td class="n">${fmt$(sum(rs,"scheduled"))}</td><td class="n">${fmt$(sum(rs,"renewals"))}</td><td class="n">${fmt$(sum(rs,"total"))}</td></tr>` });
+}
+
+function renderUnsorted(){
+  const fams = FAM_ORDER.filter(f => f !== "other");
+  table("#unsorted", D.unsorted, [
+    { k:"created_at", l:"Date", f: r => dLabel(r.created_at) },
+    { k:"description", l:"Description", f: r => `<b>${esc(r.description || "(no description)")}</b>` },
+    { k:"name", l:"Paid by", f: who },
+    { k:"amount", l:"Amount", n:true, f: r => fmt$(r.amount, 2) },
+    { k:"label", l:"What is it?", f: r => `<select class="lab" data-id="${esc(r.charge_id)}"><option value="">choose…</option>${fams.map(f => `<option value="${f}">${famName(f)}</option>`).join("")}</select>` },
+  ], { sort:"created_at", dir:-1, empty:"Everything is sorted." });
+  document.querySelectorAll("select.lab").forEach(s => s.onchange = async () => {
+    if (!s.value) return; s.disabled = true;
+    try { await api("POST", { action:"label", charge_id: s.dataset.id, family: s.value }); s.closest("tr").style.opacity = .4; s.insertAdjacentHTML("afterend", ' <span class="chip ok">saved</span>'); }
+    catch(e) { alert("Couldn't save: " + e.message); s.disabled = false; }
+  });
+}
+
+function renderHealth(){
+  $("#health tbody").innerHTML = D.health.map(h => `<tr><td class="name">${esc(h.job.replace(/^ff_/,"").replace(/_/g," "))}</td><td><span class="chip ${h.status==="ok"?"ok":"bad"}">${esc(h.status)}</span></td><td class="n">${h.hours_ago}h ago</td><td class="dim">${esc((h.detail||"").slice(0,160))}</td></tr>`).join("");
+  const snap = D.snapshot, live = D.members.filter(m => m.status === "active" || m.status === "ending");
+  $("#method").innerHTML = `
+    <p><b>Money in</b> comes from Stripe (every charge, refund, invoice and subscription), mirrored nightly. <b>Cash</b> = what was collected that month, including the card fee families pay on top. <b>Earned</b> spreads an upfront payment evenly across the months it covers.</p>
+    <p><b>A member</b> is a family (Stripe customer) with a membership plan. Back-to-back subscriptions with a gap of 45 days or less count as one continuous membership, because renewals in Stripe are a cancel and a new subscription. A family that leaves for longer and returns counts as <i>won back</i>. Freeze, trials, packs, camps, clinics and rentals aren't memberships.</p>
+    <p><b>Status:</b> active; ending = a cancellation is scheduled in Stripe; lapsed = ended within the last 45 days, so a new plan would still count as a renewal; past.</p>
+    <p><b>Lifetime value</b> = paid to date + monthly value × the chance they're still here each month for the next 5 years, using your own members' survival curve.</p>
+    <p class="hint">Check: this page counts ${live.length} active members; last night's ops snapshot counted ${snap ? snap.active_members : "—"} (${snap ? snap.day : ""}). A small difference is normal (the snapshot runs earlier).</p>`;
+}
+
+// ---------------------------------------------------------------- start
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) load(); else showLogin("");
+})();
+</script>
+</body>
+</html>
