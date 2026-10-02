@@ -233,6 +233,11 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
     <div class="card"><h3>Biggest vendors, this year</h3><div class="bars" id="x-vendors"></div></div>
   </div></section>
   <section>
+    <h2>Budget vs actual</h2><div class="h2-rule"></div>
+    <p class="sub">Starting budgets are the average of your last 6 booked months; type a new number to change one (it's kept). Red = the last booked month ran more than 10% over budget. The forecast uses these budgets.</p>
+    <div class="tw"><table id="x-budget"><thead></thead><tbody></tbody></table></div>
+  </section>
+  <section>
     <h2>Every transaction</h2><div class="h2-rule"></div>
     <div class="tools"><input id="x-search" placeholder="Search vendor or memo" style="min-width:220px"><select id="x-cat"><option value="">All categories</option></select><select id="x-month"><option value="">All months</option></select><span class="hint" id="x-count"></span></div>
     <div class="tw tall"><table id="x-tx"><thead></thead><tbody></tbody></table></div>
@@ -246,10 +251,24 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
 
 <!-- ============ FORECAST ============ -->
 <div class="tab" id="t-forecast" hidden>
+  <div class="tools" id="f-toggles"></div>
   <section><div class="kpis" id="f-kpis"></div></section>
-  <div class="note">Money in only, for now. <b>On the books</b> = payments Stripe will take inside members' current commitments. <b>Likely renewals</b> = each member's monthly value × the chance they're still here that month, from your own history. Costs, the SBA loan and Franklin join this chart in phase 3.</div>
-  <section><div class="card"><h3>Expected money in, next 12 months</h3><div class="chart" style="height:320px"><canvas id="c-fc"></canvas></div></div></section>
-  <section><div class="tw"><table id="f-table"><thead></thead><tbody></tbody></table></div></section>
+  <section><div class="card"><h3>Next 12 months: money in, money out, cash in the bank</h3><div class="chart" style="height:340px"><canvas id="c-fc"></canvas></div></div></section>
+  <section>
+    <div class="tw"><table id="f-table"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="f-method" style="margin-top:8px"></p>
+  </section>
+  <section>
+    <h2>Tax set-aside</h2><div class="h2-rule"></div>
+    <p class="sub">A rule of thumb, not tax advice. Confirm the rate with your accountant. Owner salaries already have tax withheld, so the set-aside is a percentage of profit after costs and salaries (before guaranteed payments).</p>
+    <div class="kpis" id="tax-kpis"></div>
+  </section>
+  <section>
+    <h2>Scenarios and one-off items</h2><div class="h2-rule"></div>
+    <p class="sub">Anything coming that isn't in your normal monthly numbers. Turn whole scenarios on or off at the top of this tab. <b>Step</b> = how much the amount grows each month (for ramps). <b>Months</b> blank = every month from the start.</p>
+    <div class="tw"><table id="f-events"><thead></thead><tbody></tbody></table></div>
+    <div class="tools" style="margin-top:10px"><button class="btn" id="f-add" style="padding:7px 12px">+ Add item</button></div>
+  </section>
 </div>
 
 <!-- ============ UNSORTED ============ -->
@@ -633,26 +652,158 @@ function renderRevenue(){
   $("#r-kpis").innerHTML = k.map(([l,v]) => `<div class="kpi"><p class="kpi-l">${l}</p><div class="kpi-v">${fmtK(v)}</div><div class="kpi-s">${l.startsWith("Total") ? "cash collected YTD" : pct(v, all) + " of total"}</div></div>`).join("");
 }
 
+const SCEN = { base: "Base (always on)", signups: "New families at recent pace", sba: "SBA loan + build-out", franklin: "Franklin opens", taxes: "Pay estimated taxes quarterly" };
+let fcOn = null;
+function scenariosOn(){
+  if (!fcOn) { const saved = D.settings?.scenarios_on; fcOn = new Set(Array.isArray(saved) && saved.length > 1 ? saved : ["base", "signups", "taxes"]); fcOn.add("base"); }
+  return fcOn;
+}
+function forecast(on){
+  const days = new Date(+todayStr.slice(0,4), +todayStr.slice(5,7), 0).getDate(), rf = Math.max(0, (days - +todayStr.slice(8,10) + 1) / days);
+  const { inc } = incomeByMonth(); const base6 = lastFull(6); const baseInc = base6.reduce((a,m) => a + num(inc[m]), 0) / (base6.length || 1);
+  // estimated taxes are modelled from the set-aside below, so their budget line isn't counted twice
+  const bud = Object.fromEntries(D.budgets.filter(b => b.category !== "Estimated taxes").map(b => [b.category, num(b.monthly)]));
+  const fixed = Object.entries(bud).filter(([c]) => catType(c) === "fixed").reduce((a,[,v]) => a+v, 0);
+  const variable = Object.entries(bud).filter(([c]) => catType(c) === "variable").reduce((a,[,v]) => a+v, 0);
+  const owner = num(bud["Owner pay"]);
+  // share of owner pay that is guaranteed payments (taxed via set-aside) vs salaries (withheld already)
+  const l6 = new Set(base6); const gp = D.transactions.filter(t => /guaranteed payment/i.test(t.account_name || "") && l6.has(t.txn_date.slice(0,7) + "-01")).reduce((a,t) => a + num(t.amount), 0);
+  const ownAll = D.expenses.filter(r => r.owner_pay && l6.has(r.month)).reduce((a,r) => a + num(r.amount), 0);
+  const gpShare = ownAll ? gp / ownAll : 0.5;
+  const rate = Number(D.settings?.tax_rate ?? 0.25);
+  const evAmt = (e, m) => { const k = monthsDiff(e.start_month, m); if (k < 0 || !e.active) return 0; if (e.months && k >= e.months) return 0; return num(e.amount) + num(e.step) * k; };
+  let cash = cashToday().total, taxAccrued = 0;
+  return D.forecastBase.map((fb, i) => {
+    const m = fb.month, f = i === 0 ? rf : 1;
+    const evs = D.events.filter(e => on.has(e.scenario));
+    const evIn = evs.filter(e => e.direction === "in").reduce((a,e) => a + evAmt(e, m), 0);
+    // recurring money in (e.g. Franklin memberships) is operating income: it needs coaches like any other income.
+    // one-offs (loan proceeds, owner injection) aren't.
+    const opIn = evs.filter(e => e.direction === "in" && !e.months).reduce((a,e) => a + evAmt(e, m), 0);
+    const evOut = evs.filter(e => e.direction === "out").reduce((a,e) => a + evAmt(e, m), 0);
+    const memb = num(fb.members_income), neu = on.has("signups") ? num(fb.new_members_income) : 0, other = num(fb.other_income) * f;
+    const income = memb + neu + other;
+    const costs = (fixed + variable * (baseInc ? Math.min(3, ((income + opIn) / f) / baseInc) : 1)) * f;
+    const own = owner * f;
+    const profitPreGP = income + opIn - costs - own * (1 - gpShare);   // one-off items (loan proceeds etc.) aren't profit
+    taxAccrued += Math.max(0, profitPreGP) * rate;
+    let taxPaid = 0; const mm = +m.slice(5,7);
+    if (on.has("taxes") && [1,4,6,9].includes(mm)) { taxPaid = taxAccrued; taxAccrued = 0; }
+    const net = income + evIn - costs - own - evOut - taxPaid;
+    cash += net;
+    return { month: m, memb, neu, other, evIn, costs, own, evOut, taxPaid, setAside: Math.max(0, profitPreGP) * rate, net, cash, partial: i === 0 };
+  });
+}
+// Cash today: QuickBooks bank balance + Stripe money for months whose income isn't entered in
+// QuickBooks yet (those deposits are usually still waiting in Banking > For review, so the
+// QuickBooks balance doesn't include them).
+function cashToday(){
+  const bank = sum(D.balances.filter(b => b.account_type === "Bank"), "balance");
+  const { inc, est } = incomeByMonth();
+  const pending = Object.keys(est).filter(m => m.slice(0,4) >= String(+todayStr.slice(0,4) - 1) && m <= curMonth).reduce((a,m) => a + num(inc[m]), 0);
+  return { bank, pending, total: bank + pending };
+}
+function monthsDiff(a, b){ return (+b.slice(0,4) - +a.slice(0,4)) * 12 + (+b.slice(5,7) - +a.slice(5,7)); }
+
 function renderForecast(){
-  const E = D.expected;
-  const next3 = E.slice(0,3);
+  const on = scenariosOn();
+  $("#f-toggles").innerHTML = Object.entries(SCEN).filter(([k]) => k !== "base").map(([k,l]) => `<label class="chip ${on.has(k) ? "ok" : "mute"}" style="cursor:pointer;padding:7px 10px"><input type="checkbox" data-s="${k}" ${on.has(k) ? "checked" : ""} style="margin:0 6px 0 0;vertical-align:middle">${l}</label>`).join("");
+  $("#f-toggles").querySelectorAll("input").forEach(el => el.onchange = () => {
+    el.checked ? on.add(el.dataset.s) : on.delete(el.dataset.s); renderForecast();
+    api("POST", { action:"setting", key:"scenarios_on", value:[...on] }).catch(() => {});
+  });
+  const F = forecast(on);
+  if (!F.length) { $("#f-kpis").innerHTML = '<p class="hint">Forecast inputs build nightly; check back tomorrow.</p>'; return; }
+  const ct = cashToday(), start = ct.total;
+  const low = F.reduce((a,r) => r.cash < a.cash ? r : a, F[0]);
+  const at = (n) => F[Math.min(n, F.length) - 1]?.cash;
   const k = [
-    ["Next 30 days (on the books)", fmt$(sum(D.members.filter(m => m.next_payment_date && m.next_payment_date <= addDays(todayStr,30)), "next_payment_amount")), "scheduled Stripe payments", ""],
-    ["Next 3 months", fmt$(sum(next3, "total")), `${fmt$(sum(next3,"scheduled"))} on the books`, ""],
-    ["Next 12 months", fmt$(sum(E, "total")), `${fmt$(sum(E,"scheduled"))} on the books`, ""],
-    ["Avg per month", fmt$(E.length ? sum(E,"total")/E.length : 0), "from current members only", ""],
+    ["Cash today (est.)", fmt$(start), ct.pending ? `QuickBooks ${fmt$(ct.bank)} + ${fmtK(ct.pending)} Stripe deposits not entered in QuickBooks yet` : "bank accounts, per QuickBooks", start < 0 ? "bad" : ""],
+    ["In 3 months", fmt$(at(3)), mLabel(F[Math.min(3,F.length)-1].month) + " end", at(3) < 0 ? "bad" : ""],
+    ["In 12 months", fmt$(at(12)), mLabel(F[F.length-1].month) + " end", at(12) < 0 ? "bad" : "good"],
+    ["Lowest point", fmt$(low.cash), "end of " + mLabel(low.month), low.cash < 0 ? "bad" : low.cash < 5000 ? "warn" : "good"],
+    ["Avg month", (sum(F.slice(1),"net")/(F.length-1) >= 0 ? "+" : "") + fmt$(sum(F.slice(1),"net")/(F.length-1)), "net change in cash", sum(F.slice(1),"net") >= 0 ? "good" : "bad"],
   ];
   $("#f-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
-  chart("c-fc", { money:true, data:{ labels: E.map(e => mLabel(e.month)), datasets:[
-    { type:"bar", label:"On the books", data: E.map(e => Math.round(e.scheduled)), backgroundColor: cssVar("--accent"), stack:"f" },
-    { type:"bar", label:"Likely renewals", data: E.map(e => Math.round(e.renewals)), backgroundColor: cssVar("--track"), borderColor: cssVar("--accent"), borderWidth:1, stack:"f" } ]},
+  chart("c-fc", { money:true, data:{ labels: F.map(r => mLabel(r.month) + (r.partial ? "*" : "")), datasets:[
+    { type:"bar", label:"Members (current)", data: F.map(r => Math.round(r.memb)), backgroundColor: cssVar("--accent"), stack:"in" },
+    { type:"bar", label:"New families", data: F.map(r => Math.round(r.neu)), backgroundColor: cssVar("--s2"), stack:"in" },
+    { type:"bar", label:"Camps, futsal, other", data: F.map(r => Math.round(r.other + r.evIn)), backgroundColor: cssVar("--s3"), stack:"in" },
+    { type:"bar", label:"Costs", data: F.map(r => -Math.round(r.costs)), backgroundColor: cssVar("--crit"), stack:"out" },
+    { type:"bar", label:"Owner pay", data: F.map(r => -Math.round(r.own)), backgroundColor: cssVar("--ink-2"), stack:"out" },
+    { type:"bar", label:"Loan, build-out, taxes", data: F.map(r => -Math.round(r.evOut + r.taxPaid)), backgroundColor: cssVar("--warn"), stack:"out" },
+    { type:"line", label:"Cash in the bank", data: F.map(r => Math.round(r.cash)), borderColor: cssVar("--ink"), backgroundColor: cssVar("--ink"), tension:.25, pointRadius:3, yAxisID:"y" } ]},
     options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
-  table("#f-table", E, [
-    { k:"month", l:"Month", f: r => `<b>${mLabel(r.month)}</b>${r.month === curMonth ? ' <span class="dim">rest of month</span>' : ""}` },
-    { k:"scheduled", l:"On the books", n:true, f: r => fmt$(r.scheduled) },
-    { k:"renewals", l:"Likely renewals", n:true, f: r => fmt$(r.renewals) },
-    { k:"total", l:"Expected total", n:true, f: r => `<b>${fmt$(r.total)}</b>` },
-  ], { sort:"month", dir:1, total: rs => `<tr class="tot"><td>12 months</td><td class="n">${fmt$(sum(rs,"scheduled"))}</td><td class="n">${fmt$(sum(rs,"renewals"))}</td><td class="n">${fmt$(sum(rs,"total"))}</td></tr>` });
+  table("#f-table", F, [
+    { k:"month", l:"Month", f: r => `<b>${mLabel(r.month)}</b>${r.partial ? ' <span class="dim">rest of month</span>' : ""}` },
+    { k:"memb", l:"Current members", n:true, f: r => fmt$(r.memb) },
+    { k:"neu", l:"New families", n:true, f: r => r.neu ? fmt$(r.neu) : '<span class="dim">·</span>' },
+    { k:"other", l:"Camps etc.", n:true, f: r => fmt$(r.other) },
+    { k:"evIn", l:"One-off in", n:true, f: r => r.evIn ? fmt$(r.evIn) : '<span class="dim">·</span>' },
+    { k:"costs", l:"Costs", n:true, f: r => fmt$(r.costs) },
+    { k:"own", l:"Owner pay", n:true, f: r => fmt$(r.own) },
+    { k:"evOut", l:"One-off out", n:true, f: r => r.evOut ? fmt$(r.evOut) : '<span class="dim">·</span>' },
+    { k:"taxPaid", l:"Est. tax", n:true, f: r => r.taxPaid ? fmt$(r.taxPaid) : '<span class="dim">·</span>' },
+    { k:"net", l:"Net", n:true, f: r => `<span style="color:${r.net >= 0 ? cssVar("--accent-ink") : cssVar("--crit")}">${fmt$(r.net)}</span>` },
+    { k:"cash", l:"Cash", n:true, f: r => `<b style="color:${r.cash >= 0 ? "inherit" : cssVar("--crit")}">${fmt$(r.cash)}</b>` },
+  ], { sort:"month", dir:1 });
+  const joinsTxt = D.forecastBase.length > 1 ? "" : "";
+  $("#f-method").innerHTML = `<b>How it's built:</b> current members = scheduled Stripe payments plus each member's chance of staying (your own history); new families = your recent pace of joins, with the same churn; camps/futsal/other = the same month last year from your books; costs = your budgets, with variable ones (coach pay, equipment, fees…) moving with income and fixed ones flat; cash starts from today's QuickBooks bank balance.${joinsTxt}`;
+
+  // tax set-aside
+  const rate = Number(D.settings?.tax_rate ?? 0.25), yr = todayStr.slice(0,4);
+  const { inc } = incomeByMonth(); const outAll = outByMonth(true);
+  const ms = Object.keys(inc).filter(m => m.slice(0,4) === yr && m < curMonth);
+  const salaries = D.expenses.filter(r => r.owner_pay && r.month.slice(0,4) === yr).reduce((a,r) => a + num(r.amount), 0) - D.transactions.filter(t => /guaranteed payment/i.test(t.account_name || "") && t.txn_date.slice(0,4) === yr).reduce((a,t) => a + num(t.amount), 0);
+  const nonOwner = ms.reduce((a,m) => a + tot(outAll[m]), 0) - D.expenses.filter(r => r.owner_pay && ms.includes(r.month)).reduce((a,r) => a + num(r.amount), 0);
+  const basis = ms.reduce((a,m) => a + num(inc[m]), 0) - nonOwner - salaries;
+  const paid = D.transactions.filter(t => /estimated tax/i.test(t.account_name || "") && t.txn_date.slice(0,4) === yr).reduce((a,t) => a + num(t.amount), 0);
+  const tk = [
+    ["Set-aside rate", `<input type="number" id="tax-rate" min="0" max="60" step="1" value="${Math.round(rate*100)}" style="width:70px;font:inherit;font-size:1.3rem;font-weight:800;background:none;border:1px solid var(--rule);border-radius:3px;color:var(--ink)">%`, "of profit after costs + salaries", ""],
+    ["Taxable profit, " + yr, fmtK(basis), "booked months, before guaranteed payments", ""],
+    ["Should have set aside", fmtK(Math.max(0, basis) * rate), "year to date at this rate", ""],
+    ["Estimated taxes paid", fmtK(paid), "per QuickBooks, " + yr, paid >= Math.max(0, basis) * rate * 0.8 ? "good" : "warn"],
+    ["Set aside per month", fmt$(F.slice(1).reduce((a,r) => a + r.setAside, 0) / (F.length - 1)), "forecast average", ""],
+  ];
+  $("#tax-kpis").innerHTML = tk.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+  $("#tax-rate").onchange = async (e) => { const v = Number(e.target.value) / 100; if (!(v >= 0 && v <= .6)) return; D.settings.tax_rate = v; renderForecast(); api("POST", { action:"setting", key:"tax_rate", value:v }).catch(err => alert("Couldn't save: " + err.message)); };
+
+  // events editor
+  const scenOpts = (cur) => ["base","sba","franklin", ...new Set(D.events.map(e => e.scenario))].filter((v,i,a) => a.indexOf(v) === i).map(sc => `<option value="${esc(sc)}" ${sc===cur?"selected":""}>${esc(SCEN[sc] || sc)}</option>`).join("");
+  const rowHtml = (e) => `<tr data-id="${e.id ?? ""}">
+    <td><input class="ev-name" value="${esc(e.name)}" style="min-width:200px"><br><input class="ev-notes" value="${esc(e.notes || "")}" placeholder="notes" style="min-width:200px;font-size:12px;margin-top:4px"></td>
+    <td><select class="ev-scen">${scenOpts(e.scenario)}</select></td>
+    <td><select class="ev-dir"><option value="in" ${e.direction==="in"?"selected":""}>money in</option><option value="out" ${e.direction==="out"?"selected":""}>money out</option></select></td>
+    <td class="n"><input class="ev-amt" type="number" step="0.01" value="${e.amount}" style="width:100px;text-align:right"></td>
+    <td class="n"><input class="ev-step" type="number" step="1" value="${e.step || 0}" style="width:80px;text-align:right"></td>
+    <td><input class="ev-start" type="month" value="${(e.start_month || curMonth).slice(0,7)}"></td>
+    <td class="n"><input class="ev-months" type="number" min="1" value="${e.months ?? ""}" placeholder="every" style="width:70px;text-align:right"></td>
+    <td><input class="ev-active" type="checkbox" ${e.active !== false ? "checked" : ""}></td>
+    <td style="white-space:nowrap"><button class="btn ev-save" style="padding:5px 10px">Save</button> <button class="btn ev-del" style="padding:5px 10px;background:none;color:var(--crit)">Delete</button></td></tr>`;
+  const et = $("#f-events");
+  et.querySelector("thead").innerHTML = "<tr><th>Item</th><th>Scenario</th><th>Direction</th><th class='n'>Amount</th><th class='n'>Step / mo</th><th>Starts</th><th class='n'>Months</th><th>On</th><th></th></tr>";
+  et.querySelector("tbody").innerHTML = D.events.map(rowHtml).join("") || `<tr><td colspan="9" class="dim">No items yet.</td></tr>`;
+  const wire = () => et.querySelectorAll("tbody tr").forEach(tr => {
+    const g = (c) => tr.querySelector(c);
+    if (!g(".ev-save")) return;
+    g(".ev-save").onclick = async () => {
+      const body = { action:"event", id: tr.dataset.id || undefined, name: g(".ev-name").value.trim(), notes: g(".ev-notes").value.trim(), scenario: g(".ev-scen").value,
+        direction: g(".ev-dir").value, amount: Number(g(".ev-amt").value), step: Number(g(".ev-step").value || 0), start_month: g(".ev-start").value + "-01",
+        months: g(".ev-months").value ? Number(g(".ev-months").value) : null, active: g(".ev-active").checked };
+      if (!body.name || !Number.isFinite(body.amount)) return alert("Give it a name and an amount.");
+      try { const r = await api("POST", body); body.id = r.id; tr.dataset.id = r.id;
+        const i = D.events.findIndex(e => String(e.id) === String(r.id)); const row = { ...body }; delete row.action;
+        if (i >= 0) D.events[i] = row; else D.events.push(row);
+        renderForecast(); } catch(e) { alert("Couldn't save: " + e.message); }
+    };
+    g(".ev-del").onclick = async () => {
+      if (!tr.dataset.id) { tr.remove(); return; }
+      if (!confirm("Delete this item?")) return;
+      try { await api("POST", { action:"event_delete", id: tr.dataset.id }); D.events = D.events.filter(e => String(e.id) !== tr.dataset.id); renderForecast(); } catch(e) { alert("Couldn't delete: " + e.message); }
+    };
+  });
+  wire();
+  $("#f-add").onclick = () => { et.querySelector("tbody").insertAdjacentHTML("beforeend", rowHtml({ name:"", direction:"out", amount:0, step:0, start_month: curMonth, months:1, scenario:"base", active:true })); wire(); };
 }
 
 function renderUnsorted(){
@@ -673,8 +824,18 @@ function renderUnsorted(){
 
 
 // ---------------------------------------------------------------- money out (QuickBooks)
-const CAT_ORDER = ["Coaches & payroll","Rent & facility","Ads & marketing","Equipment & gear","Software & subscriptions","Travel & vehicle","Card & bank fees","Insurance","Professional fees","Taxes & licenses","Training & education","Loan & interest","Other","Owner pay"];
+const CAT_ORDER = ["Coaches & payroll","Manager pay","Rent & facility","Ads & marketing","Equipment & gear","Software & subscriptions","Travel & vehicle","Card & bank fees","Insurance","Professional fees","Taxes & licenses","Training & education","Loan & interest","Estimated taxes","Other","Owner pay"];
 const catColor = (c) => c === "Owner pay" ? cssVar("--ink-2") : cssVar("--s" + (((CAT_ORDER.indexOf(c) + 13) % 10) + 1));
+function categoryOfTx(t){
+  const p = (D.payees || []).find(x => x.name === t.name && (!x.until_date || t.txn_date <= x.until_date));
+  if (p) return p.category;
+  const m = D.categoryMap.find(x => x.account_id === t.account_id); return m ? m.category : "Other";
+}
+function catType(c){
+  if (c === "Owner pay") return "owner";
+  const rows = D.expenses.filter(r => r.category === c); const f = sum(rows.filter(r => r.cost_type === "fixed"), "amount"), v = sum(rows.filter(r => r.cost_type !== "fixed"), "amount");
+  return f >= v ? "fixed" : "variable";
+}
 function outByMonth(withOwner){
   const by = {}; D.expenses.forEach(r => { if (!withOwner && r.owner_pay) return; const m = r.month; (by[m] ||= {})[r.category] = (by[m][r.category]||0) + num(r.amount); }); return by;
 }
@@ -711,7 +872,7 @@ function renderPnl(){
     ["Profit before owner pay", fmtK(inY - outY), pct(inY - outY, inY) + " margin", inY - outY >= 0 ? "good" : "bad"],
     ["Owner pay, " + yr, fmtK(ownY), "guaranteed payments", ""],
     ["Profit after owner pay", fmtK(inY - outY - ownY), "what the business kept", inY - outY - ownY >= 0 ? "good" : "bad"],
-    ["Cash in the bank", fmt$(cashNow), `${bank.length} accounts · card owes ${fmt$(cardNow)}`, cashNow < 0 ? "bad" : cashNow < burn ? "warn" : ""],
+    ["Cash in the bank (est.)", fmt$(cashToday().total), cashToday().pending ? `QuickBooks shows ${fmt$(cashNow)}; + ${fmtK(cashToday().pending)} Stripe deposits not yet entered · card owes ${fmt$(cardNow)}` : `${bank.length} accounts · card owes ${fmt$(cardNow)}`, cashToday().total < 0 ? "bad" : cashToday().total < burn ? "warn" : ""],
     ["Avg month (booked)", (net3 >= 0 ? "+" : "") + fmtK(net3), `${l3.map(mLabel).join(", ")}: ${fmtK(inc3)} in · ${fmtK(burn)} out incl. owner pay`, net3 >= 0 ? "good" : "bad"],
   ];
   $("#pnl-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
@@ -790,9 +951,32 @@ function renderExpenses(){
   const vtop = Object.entries(vend).sort((a,b) => b[1]-a[1]).slice(0, 12);
   $("#x-vendors").innerHTML = vtop.map(([k,v]) => bar(esc(k), v, vtop[0]?.[1] || 1, `<b>${fmt$(v)}</b>`)).join("");
 
+  // budget vs actual
+  const lb = lastFull(1)[0], l3b = lastFull(3);
+  const cats2 = [...new Set([...D.budgets.map(b => b.category), ...Object.keys(ytd)])];
+  const brows = cats2.map(c => { const bud = D.budgets.find(b => b.category === c);
+    const last = num(all[lb]?.[c]), a3 = l3b.reduce((x,m) => x + num(all[m]?.[c]), 0) / (l3b.length || 1);
+    return { cat:c, type: catType(c), budget: bud ? num(bud.monthly) : null, manual: bud?.manual, last, a3, cur: num(all[curMonth]?.[c]) }; });
+  table("#x-budget", brows, [
+    { k:"cat", l:"Category", f: r => `<b>${esc(r.cat)}</b>` },
+    { k:"type", l:"Type", f: r => r.type === "fixed" ? '<span class="chip mute">fixed</span>' : r.type === "owner" ? '<span class="chip warn">owner</span>' : '<span class="chip ok">variable</span>' },
+    { k:"budget", l:"Monthly budget", n:true, f: r => `<input type="number" min="0" step="50" class="bud" data-cat="${esc(r.cat)}" value="${r.budget ?? ""}" style="width:110px;text-align:right">${r.manual ? ' <span class="chip ok">yours</span>' : ""}` },
+    { k:"last", l: lb ? mLabel(lb) + " actual" : "Last booked", n:true, f: r => { const over = r.budget != null && r.last > r.budget * 1.1 && r.last - r.budget > 50; return `<span class="chip ${over ? "bad" : "ok"}">${fmt$(r.last)}</span>`; } },
+    { k:"a3", l:"3-mo avg", n:true, f: r => fmt$(r.a3) },
+    { k:"cur", l: mLabel(curMonth) + " so far", n:true, f: r => r.cur ? fmt$(r.cur) : '<span class="dim">·</span>' },
+  ], { sort:"budget", dir:-1, total: rs => `<tr class="tot"><td colspan="2">Total</td><td class="n">${fmt$(sum(rs,"budget"))}</td><td class="n">${fmt$(sum(rs,"last"))}</td><td class="n">${fmt$(sum(rs,"a3"))}</td><td class="n">${fmt$(sum(rs,"cur"))}</td></tr>` });
+  document.querySelectorAll("input.bud").forEach(el => el.onchange = async () => {
+    const v = Number(el.value); if (!Number.isFinite(v) || v < 0) return;
+    el.disabled = true;
+    try { await api("POST", { action:"budget", category: el.dataset.cat, monthly: v });
+      const b = D.budgets.find(x => x.category === el.dataset.cat); if (b) { b.monthly = v; b.manual = true; } else D.budgets.push({ category: el.dataset.cat, monthly: v, manual: true });
+      el.insertAdjacentHTML("afterend", ' <span class="chip ok">saved</span>'); renderForecast(); }
+    catch(e) { alert("Couldn't save: " + e.message); }
+    el.disabled = false;
+  });
+
   // transactions
-  const catOf = Object.fromEntries(D.categoryMap.map(m => [m.account_id, m.category]));
-  const tx = D.transactions.map(t => ({ ...t, category: catOf[t.account_id] || "Other" }));
+  const tx = D.transactions.map(t => ({ ...t, category: categoryOfTx(t) }));
   const months = [...new Set(tx.map(t => t.txn_date.slice(0,7)))].sort().reverse();
   $("#x-cat").innerHTML = `<option value="">All categories</option>` + [...new Set(tx.map(t => t.category))].sort().map(c => `<option>${esc(c)}</option>`).join("");
   $("#x-month").innerHTML = `<option value="">All months</option>` + months.map(m => `<option value="${m}">${mLabel(m + "-01")}</option>`).join("");
