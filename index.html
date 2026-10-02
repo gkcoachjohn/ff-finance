@@ -121,7 +121,15 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
 <!-- ============ OVERVIEW ============ -->
 <div class="tab" id="t-overview">
   <section><div class="kpis" id="ov-kpis"></div></section>
-  <div class="note" id="ov-note">Money out (expenses, profit, owner pay, cash in the bank) arrives in phase 2, when QuickBooks is connected. Everything here is money in, from Stripe.</div>
+  <section>
+    <h2>Profit and loss</h2><div class="h2-rule"></div>
+    <p class="sub">Money in = income as booked in QuickBooks (includes futsal and camp money that doesn't go through Stripe); for a month not booked yet, Stripe stands in and it's marked <span class="chip warn">est</span>. Money out = QuickBooks (every expense line). <b>Before owner pay</b> is what the business itself makes; <b>after</b> is what's left once Regan's and John's guaranteed payments come out.</p>
+    <div class="kpis" id="pnl-kpis" style="margin-bottom:16px"></div>
+    <div class="grid2">
+      <div class="card"><h3>In, out and profit by month</h3><div class="chart"><canvas id="c-pnl"></canvas></div></div>
+      <div class="card"><h3>Month by month</h3><div class="tw" style="border:0"><table id="pnl-table" style="min-width:0"><thead></thead><tbody></tbody></table></div></div>
+    </div>
+  </section>
   <section>
     <div class="grid2">
       <div class="card"><h3>Money in by month</h3><p class="hint" style="margin:-6px 0 8px">Cash collected (bars) vs earned (line: upfront plans spread over the months they cover)</p><div class="chart"><canvas id="c-ov-rev"></canvas></div></div>
@@ -208,6 +216,34 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
   </section>
 </div>
 
+<!-- ============ EXPENSES ============ -->
+<div class="tab" id="t-expenses" hidden>
+  <section><div class="kpis" id="x-kpis"></div></section>
+  <section>
+    <div class="tools"><div class="seg" id="x-owner"><button data-o="0" class="on">Without owner pay</button><button data-o="1">With owner pay</button></div><div class="seg" id="x-range"><button data-r="13" class="on">13 months</button><button data-r="99">All</button></div></div>
+    <div class="card"><h3>Money out by category</h3><div class="chart" style="height:320px"><canvas id="c-exp"></canvas></div></div>
+  </section>
+  <section>
+    <h2>By category</h2><div class="h2-rule"></div>
+    <p class="sub">Last six months plus this year so far. <b>Fixed</b> costs come every month no matter how many families train (rent, software, insurance); <b>variable</b> costs move with activity (coach pay, ads, equipment).</p>
+    <div class="tw"><table id="x-table"><thead></thead><tbody></tbody></table></div>
+  </section>
+  <section><div class="grid2">
+    <div class="card"><h3>Fixed vs variable (avg of last 3 booked months)</h3><div class="bars" id="x-fixed"></div></div>
+    <div class="card"><h3>Biggest vendors, this year</h3><div class="bars" id="x-vendors"></div></div>
+  </div></section>
+  <section>
+    <h2>Every transaction</h2><div class="h2-rule"></div>
+    <div class="tools"><input id="x-search" placeholder="Search vendor or memo" style="min-width:220px"><select id="x-cat"><option value="">All categories</option></select><select id="x-month"><option value="">All months</option></select><span class="hint" id="x-count"></span></div>
+    <div class="tw tall"><table id="x-tx"><thead></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>Categories</h2><div class="h2-rule"></div>
+    <p class="sub">How each QuickBooks account is grouped on this dashboard. Change any of them and it's saved; the nightly sync never overwrites your choice. Totals regroup on the next refresh.</p>
+    <div class="tw tall"><table id="x-map"><thead></thead><tbody></tbody></table></div>
+  </section>
+</div>
+
 <!-- ============ FORECAST ============ -->
 <div class="tab" id="t-forecast" hidden>
   <section><div class="kpis" id="f-kpis"></div></section>
@@ -225,6 +261,10 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
 <!-- ============ HEALTH ============ -->
 <div class="tab" id="t-health" hidden>
   <section><h2>Data jobs</h2><div class="h2-rule"></div><div class="tw"><table id="health"><thead><tr><th>Job</th><th>Status</th><th class="n">Last run</th><th>Detail</th></tr></thead><tbody></tbody></table></div></section>
+  <section><h2>Stripe vs QuickBooks</h2><div class="h2-rule"></div>
+    <p class="sub">Money in as Stripe sees it vs income as QuickBooks books it. A big gap means deposits not yet categorised in QuickBooks, money arriving outside Stripe, or timing (Stripe pays out a few days later).</p>
+    <div class="tw"><table id="recon"><thead></thead><tbody></tbody></table></div></section>
+  <section><h2>Bank and card balances</h2><div class="h2-rule"></div><div class="tw"><table id="bal"><thead></thead><tbody></tbody></table></div></section>
   <section><h2>How the numbers are built</h2><div class="h2-rule"></div><div class="card" id="method" style="font-size:14px"></div></section>
 </div>
 
@@ -294,7 +334,7 @@ async function load(){
 }
 
 // ---------------------------------------------------------------- tabs
-const TABS = [["overview","Overview"],["members","Members"],["revenue","Revenue"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
+const TABS = [["overview","Overview"],["members","Members"],["revenue","Revenue"],["expenses","Expenses"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
 function tabs(){
   const cnt = { unsorted: D.unsorted.length };
   $("#tabs").innerHTML = TABS.map(([k,l]) => `<button data-t="${k}">${l}${cnt[k] ? `<span class="cnt">${cnt[k]}</span>` : ""}</button>`).join("");
@@ -351,7 +391,7 @@ function render(){
   $("#rl").onclick = () => load();
   tabs();
   const live = D.members.filter(m => m.status === "active" || m.status === "ending");
-  renderOverview(live); renderMembers(live); renderRevenue(); renderForecast(); renderUnsorted(); renderHealth();
+  renderOverview(live); renderPnl(); renderMembers(live); renderRevenue(); renderExpenses(); renderForecast(); renderUnsorted(); renderHealth();
   $("#foot").textContent = `Private: only signed-in, approved accounts can load this data. Generated ${gen.toLocaleString()}.`;
 }
 
@@ -631,10 +671,186 @@ function renderUnsorted(){
   });
 }
 
+
+// ---------------------------------------------------------------- money out (QuickBooks)
+const CAT_ORDER = ["Coaches & payroll","Rent & facility","Ads & marketing","Equipment & gear","Software & subscriptions","Travel & vehicle","Card & bank fees","Insurance","Professional fees","Taxes & licenses","Training & education","Loan & interest","Other","Owner pay"];
+const catColor = (c) => c === "Owner pay" ? cssVar("--ink-2") : cssVar("--s" + (((CAT_ORDER.indexOf(c) + 13) % 10) + 1));
+function outByMonth(withOwner){
+  const by = {}; D.expenses.forEach(r => { if (!withOwner && r.owner_pay) return; const m = r.month; (by[m] ||= {})[r.category] = (by[m][r.category]||0) + num(r.amount); }); return by;
+}
+// the last n months whose books are done (QuickBooks has income booked); open months would drag averages down
+const lastFull = (n) => { const booked = new Set(D.qboIncome.filter(r => num(r.amount) > 0).map(r => r.month));
+  return monthsBack(14).slice(0, 13).filter(m => booked.has(m)).slice(-n); };
+const qboThrough = () => D.transactions.length ? D.transactions[0].txn_date : null;
+
+// Money in for the P&L: QuickBooks income once the month is booked (it includes futsal / camp money that
+// never touches this Stripe account); Stripe as a stand-in while the books are still open.
+function incomeByMonth(){
+  const cash = revByMonth("cash"), qi = {}; D.qboIncome.forEach(r => qi[r.month] = (qi[r.month]||0) + num(r.amount));
+  const out = {}, est = {};
+  new Set([...Object.keys(cash), ...Object.keys(qi)]).forEach(m => {
+    const s = tot(cash[m]), q = qi[m] || 0;
+    if (q >= 0.5 * s && q > 0) out[m] = q; else { out[m] = s; est[m] = true; }
+  });
+  return { inc: out, est };
+}
+function renderPnl(){
+  const { inc, est } = incomeByMonth(), out = outByMonth(false), outAll = outByMonth(true);
+  const cash = Object.fromEntries(Object.entries(inc).map(([m,v]) => [m, { all: v }]));
+  const owner = (m) => tot(outAll[m]) - tot(out[m]);
+  const yr = todayStr.slice(0,4), ytdMs = Object.keys({...cash, ...outAll}).filter(m => m.slice(0,4) === yr && m <= curMonth);
+  const S = (f) => ytdMs.reduce((a,m) => a + f(m), 0);
+  const inY = S(m => tot(cash[m])), outY = S(m => tot(out[m])), ownY = S(owner);
+  const bank = D.balances.filter(b => b.account_type === "Bank"), card = D.balances.filter(b => b.account_type === "Credit Card");
+  const cashNow = sum(bank, "balance"), cardNow = sum(card, "balance");
+  const l3 = lastFull(3), burn = l3.reduce((a,m) => a + tot(outAll[m]), 0) / 3, inc3 = l3.reduce((a,m) => a + tot(cash[m]), 0) / 3;
+  const net3 = inc3 - burn;
+  const k = [
+    ["Money in, " + yr, fmtK(inY), ytdMs.some(m => est[m]) ? "books + Stripe for unbooked months" : "as booked in QuickBooks", ""],
+    ["Money out, " + yr, fmtK(outY), "QuickBooks, before owner pay", ""],
+    ["Profit before owner pay", fmtK(inY - outY), pct(inY - outY, inY) + " margin", inY - outY >= 0 ? "good" : "bad"],
+    ["Owner pay, " + yr, fmtK(ownY), "guaranteed payments", ""],
+    ["Profit after owner pay", fmtK(inY - outY - ownY), "what the business kept", inY - outY - ownY >= 0 ? "good" : "bad"],
+    ["Cash in the bank", fmt$(cashNow), `${bank.length} accounts · card owes ${fmt$(cardNow)}`, cashNow < 0 ? "bad" : cashNow < burn ? "warn" : ""],
+    ["Avg month (booked)", (net3 >= 0 ? "+" : "") + fmtK(net3), `${l3.map(mLabel).join(", ")}: ${fmtK(inc3)} in · ${fmtK(burn)} out incl. owner pay`, net3 >= 0 ? "good" : "bad"],
+  ];
+  $("#pnl-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+  const ms = monthsBack(13);
+  chart("c-pnl", { money:true, data:{ labels: ms.map(mLabel), datasets:[
+    { type:"bar", label:"Money in", data: ms.map(m => Math.round(tot(cash[m]))), backgroundColor: cssVar("--accent") },
+    { type:"bar", label:"Money out", data: ms.map(m => -Math.round(tot(out[m]))), backgroundColor: cssVar("--crit") },
+    { type:"bar", label:"Owner pay", data: ms.map(m => -Math.round(owner(m))), backgroundColor: cssVar("--ink-2") },
+    { type:"line", label:"Profit after owner pay", data: ms.map(m => Math.round(tot(cash[m]) - tot(outAll[m]))), borderColor: cssVar("--warn"), backgroundColor: cssVar("--warn"), tension:.25, pointRadius:3 } ]},
+    options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
+  const thru = qboThrough();
+  const rows = [...ms].reverse().map(m => { const i = tot(cash[m]), o = tot(out[m]), w = owner(m); return { month:m, i, o, b: i-o, w, a: i-o-w }; });
+  table("#pnl-table", rows, [
+    { k:"month", l:"Month", f: r => `<b>${mLabel(r.month)}</b>${r.month === curMonth ? ' <span class="dim">so far</span>' : ""}` },
+    { k:"i", l:"In", n:true, f: r => fmt$(r.i) + (est[r.month] ? ' <span class="chip warn" title="QuickBooks income not booked yet - Stripe shown instead">est</span>' : "") },
+    { k:"o", l:"Out", n:true, f: r => fmt$(r.o) },
+    { k:"b", l:"Before owner", n:true, f: r => `<span style="color:${r.b>=0?cssVar("--accent-ink"):cssVar("--crit")}">${fmt$(r.b)}</span>` },
+    { k:"w", l:"Owner pay", n:true, f: r => r.w ? fmt$(r.w) : '<span class="dim">·</span>' },
+    { k:"a", l:"After", n:true, f: r => `<b style="color:${r.a>=0?cssVar("--accent-ink"):cssVar("--crit")}">${fmt$(r.a)}</b>` },
+  ], { sort:"month", dir:-1 });
+  if (thru) $("#pnl-table").insertAdjacentHTML("afterend", `<p class="hint" style="margin:8px 0 0">QuickBooks expenses booked through ${dLabel(thru)}. Recent months fill in as your books are updated.</p>`);
+}
+
+function renderExpenses(){
+  const all = outByMonth(true), ops = outByMonth(false);
+  const yr = todayStr.slice(0,4); const lm = monthsBack(2)[0];
+  const ytd = {}; Object.entries(all).forEach(([m,o]) => { if (m.slice(0,4) === yr) Object.entries(o).forEach(([c,v]) => ytd[c] = (ytd[c]||0) + v); });
+  const ytdOps = Object.entries(ytd).filter(([c]) => c !== "Owner pay").reduce((a,[,v]) => a+v, 0);
+  const top = Object.entries(ytd).filter(([c]) => c !== "Owner pay").sort((a,b) => b[1]-a[1])[0] || ["—",0];
+  const l3 = lastFull(3);
+  const fixedCats = new Set(D.categoryMap.filter(m => m.cost_type === "fixed" && !m.owner_pay).map(m => m.category));
+  const avg = (f) => l3.reduce((a,m) => a + D.expenses.filter(r => r.month === m && f(r)).reduce((x,r) => x + num(r.amount), 0), 0) / 3;
+  const fixedAvg = avg(r => r.cost_type === "fixed" && !r.owner_pay), varAvg = avg(r => r.cost_type !== "fixed" && !r.owner_pay);
+  const live = D.members.filter(m => m.status === "active" || m.status === "ending");
+  const perMember = live.length ? sum(live, "monthly_value") / live.length : 0;
+  const { inc: incM } = incomeByMonth(); const incB = l3.reduce((a,m) => a + num(incM[m]), 0) / (l3.length || 1);
+  const margin = incB ? (incB - varAvg) / incB : 0, ownerAvg = avg(r => r.owner_pay);
+  const be = margin > 0 ? fixedAvg / margin : null, beOwner = margin > 0 ? (fixedAvg + ownerAvg) / margin : null;
+  const k = [
+    ["Spent this month", fmt$(tot(ops[curMonth])), "so far, before owner pay", ""],
+    ["Last month", fmt$(tot(ops[lm])), mLabel(lm), ""],
+    ["Spent " + yr, fmtK(ytdOps), "before owner pay", ""],
+    ["Biggest cost", esc(top[0]), fmtK(top[1]) + " this year · " + pct(top[1], ytdOps), ""],
+    ["Fixed costs / month", fmt$(fixedAvg), `avg of ${l3.map(mLabel).join(", ")}`, ""],
+    ["Break-even revenue", be ? fmtK(be) + "/mo" : "—", be ? `${pct(incB - varAvg, incB)} of each $ is left after variable costs (coach pay etc.); fixed ${fmtK(fixedAvg)} needs ${fmtK(be)} in · you average ${fmtK(incB)}` : "variable costs exceed income", be && incB >= be ? "good" : "bad"],
+    ["Break-even incl. owner pay", beOwner ? fmtK(beOwner) + "/mo" : "—", `to also cover ~${fmtK(ownerAvg)}/mo owner pay at today's margin · you average ${fmtK(incB)}`, beOwner && incB >= beOwner ? "good" : "warn"],
+  ];
+  $("#x-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+
+  let withOwner = false, range = 13;
+  const draw = () => {
+    const by = withOwner ? all : ops;
+    const allMs = Object.keys(by).filter(m => m <= curMonth).sort();
+    const ms = range >= 99 ? allMs : monthsBack(range);
+    const cats = CAT_ORDER.filter(c => ms.some(m => num(by[m]?.[c]) !== 0));
+    Object.keys(ytd).forEach(c => { if (!cats.includes(c) && ms.some(m => num(by[m]?.[c]))) cats.push(c); });
+    chart("c-exp", { money:true, data:{ labels: ms.map(mLabel), datasets: cats.map(c => ({ type:"bar", label:c, data: ms.map(m => Math.round(num(by[m]?.[c]))), backgroundColor: catColor(c), stack:"x" })) },
+      options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
+  };
+  seg("#x-owner", (ds) => { withOwner = ds.o === "1"; draw(); }); seg("#x-range", (ds) => { range = +ds.r; draw(); }); draw();
+
+  // category x month table
+  const ms6 = monthsBack(7).slice(0, 7).reverse();   // this month + 6 before, newest first
+  const cats = [...new Set([...CAT_ORDER.filter(c => ytd[c] !== undefined), ...Object.keys(ytd)])];
+  const typeOf = (c) => c === "Owner pay" ? "owner" : fixedCats.has(c) ? "fixed" : "variable";
+  const rows = cats.map(c => ({ cat: c, type: typeOf(c), ...Object.fromEntries(ms6.map(m => [m, num(all[m]?.[c])])), ytd: ytd[c] || 0 }));
+  table("#x-table", rows, [
+    { k:"cat", l:"Category", f: r => `<b>${esc(r.cat)}</b>` },
+    { k:"type", l:"Type", f: r => r.type === "fixed" ? '<span class="chip mute">fixed</span>' : r.type === "owner" ? '<span class="chip warn">owner</span>' : '<span class="chip ok">variable</span>' },
+    ...ms6.map(m => ({ k:m, l: mLabel(m) + (m === curMonth ? "*" : ""), n:true, f: r => r[m] ? fmt$(r[m]) : '<span class="dim">·</span>' })),
+    { k:"ytd", l: yr + " total", n:true, f: r => `<b>${fmt$(r.ytd)}</b>` },
+  ], { sort:"ytd", dir:-1, total: rs => { const ops = rs.filter(r => r.type !== "owner"); return `<tr class="tot"><td colspan="2">Total before owner pay</td>${ms6.map(m => `<td class="n">${fmt$(sum(ops,m))}</td>`).join("")}<td class="n">${fmt$(sum(ops,"ytd"))}</td></tr>`; } });
+
+  $("#x-fixed").innerHTML = [["Fixed", fixedAvg], ["Variable", varAvg], ["Owner pay", avg(r => r.owner_pay)]].map(([l,v]) => bar(l, v, fixedAvg + varAvg + avg(r => r.owner_pay), `<b>${fmt$(v)}</b>/mo`)).join("");
+  const vend = {}; D.transactions.filter(t => t.txn_date.slice(0,4) === yr && t.section !== "Other Expenses").forEach(t => { const k = t.name || "(no vendor)"; vend[k] = (vend[k]||0) + num(t.amount); });
+  const vtop = Object.entries(vend).sort((a,b) => b[1]-a[1]).slice(0, 12);
+  $("#x-vendors").innerHTML = vtop.map(([k,v]) => bar(esc(k), v, vtop[0]?.[1] || 1, `<b>${fmt$(v)}</b>`)).join("");
+
+  // transactions
+  const catOf = Object.fromEntries(D.categoryMap.map(m => [m.account_id, m.category]));
+  const tx = D.transactions.map(t => ({ ...t, category: catOf[t.account_id] || "Other" }));
+  const months = [...new Set(tx.map(t => t.txn_date.slice(0,7)))].sort().reverse();
+  $("#x-cat").innerHTML = `<option value="">All categories</option>` + [...new Set(tx.map(t => t.category))].sort().map(c => `<option>${esc(c)}</option>`).join("");
+  $("#x-month").innerHTML = `<option value="">All months</option>` + months.map(m => `<option value="${m}">${mLabel(m + "-01")}</option>`).join("");
+  const drawTx = () => {
+    const q = $("#x-search").value.trim().toLowerCase(), c = $("#x-cat").value, m = $("#x-month").value;
+    const rows = tx.filter(t => (!q || (t.name||"").toLowerCase().includes(q) || (t.memo||"").toLowerCase().includes(q) || (t.account_name||"").toLowerCase().includes(q)) && (!c || t.category === c) && (!m || t.txn_date.startsWith(m)));
+    $("#x-count").textContent = `${rows.length} lines · ${fmt$(sum(rows,"amount"), 2)}`;
+    table("#x-tx", rows, [
+      { k:"txn_date", l:"Date", f: r => dLabel(r.txn_date) },
+      { k:"name", l:"Vendor / payee", f: r => `<b>${esc(r.name || "—")}</b>${r.memo ? `<br><span class="dim">${esc(r.memo)}</span>` : ""}`, cls:"name" },
+      { k:"category", l:"Category", f: r => `${esc(r.category)}<br><span class="dim">${esc(r.account_name || "")}</span>` },
+      { k:"txn_type", l:"Type", f: r => `<span class="dim">${esc(r.txn_type || "")}${r.split_account ? " · " + esc(r.split_account) : ""}</span>` },
+      { k:"location", l:"Location", f: r => esc(r.location || "North") },
+      { k:"amount", l:"Amount", n:true, f: r => fmt$(r.amount, 2) },
+    ], { sort:"txn_date", dir:-1, limit: 600 });
+  };
+  $("#x-search").oninput = drawTx; $("#x-cat").onchange = drawTx; $("#x-month").onchange = drawTx; drawTx();
+
+  // category map editor
+  const catChoices = [...new Set([...CAT_ORDER, ...D.categoryMap.map(m => m.category)])];
+  table("#x-map", D.categoryMap, [
+    { k:"account_name", l:"QuickBooks account", f: r => `<b>${esc(r.account_name)}</b>${r.manual ? ' <span class="chip ok">yours</span>' : ""}` },
+    { k:"category", l:"Dashboard category", f: r => `<select class="mapc" data-id="${esc(r.account_id)}">${catChoices.map(c => `<option ${c===r.category?"selected":""}>${esc(c)}</option>`).join("")}</select>` },
+    { k:"cost_type", l:"Fixed / variable", f: r => `<select class="mapt" data-id="${esc(r.account_id)}"><option value="fixed" ${r.cost_type==="fixed"?"selected":""}>fixed</option><option value="variable" ${r.cost_type!=="fixed"?"selected":""}>variable</option></select>` },
+    { k:"owner_pay", l:"Owner pay", f: r => `<input type="checkbox" class="mapo" data-id="${esc(r.account_id)}" ${r.owner_pay?"checked":""}>` },
+  ], { sort:"category", dir:1 });
+  const save = async (id, el) => {
+    const m = D.categoryMap.find(x => x.account_id === id); if (!m) return;
+    m.category = document.querySelector(`select.mapc[data-id="${CSS.escape(id)}"]`).value;
+    m.cost_type = document.querySelector(`select.mapt[data-id="${CSS.escape(id)}"]`).value;
+    m.owner_pay = document.querySelector(`input.mapo[data-id="${CSS.escape(id)}"]`).checked;
+    el.disabled = true;
+    try { await api("POST", { action:"category", account_id:id, category:m.category, cost_type:m.cost_type, owner_pay:m.owner_pay }); m.manual = true; el.insertAdjacentHTML("afterend", ' <span class="chip ok">saved</span>'); }
+    catch(e) { alert("Couldn't save: " + e.message); }
+    el.disabled = false;
+  };
+  document.querySelectorAll("#x-map select, #x-map input").forEach(el => el.onchange = () => save(el.dataset.id, el));
+}
+
 function renderHealth(){
+  const cash = revByMonth("cash"); const qi = {}; D.qboIncome.forEach(r => qi[r.month] = (qi[r.month]||0) + num(r.amount));
+  const rms = monthsBack(13).reverse().map(m => ({ month:m, s: tot(cash[m]), q: qi[m] || 0, d: tot(cash[m]) - (qi[m] || 0) }));
+  table("#recon", rms, [
+    { k:"month", l:"Month", f: r => `<b>${mLabel(r.month)}</b>` },
+    { k:"s", l:"Stripe", n:true, f: r => fmt$(r.s) },
+    { k:"q", l:"QuickBooks income", n:true, f: r => fmt$(r.q) },
+    { k:"d", l:"Gap", n:true, f: r => { const p = r.s ? Math.abs(r.d)/r.s : 0; return `<span class="chip ${p > .1 ? "warn" : "ok"}">${fmt$(r.d)}</span>`; } },
+  ], { sort:"month", dir:-1 });
+  table("#bal", D.balances.filter(b => num(b.balance) !== 0 || b.account_type === "Bank"), [
+    { k:"name", l:"Account", f: r => `<b>${esc(r.name)}</b>` },
+    { k:"account_type", l:"Type" },
+    { k:"balance", l:"Balance (per QuickBooks)", n:true, f: r => `<span style="color:${num(r.balance) < 0 && r.account_type==="Bank" ? cssVar("--crit") : "inherit"}">${fmt$(r.balance, 2)}</span>` },
+  ], { sort:"account_type", dir:1 });
+
   $("#health tbody").innerHTML = D.health.map(h => `<tr><td class="name">${esc(h.job.replace(/^ff_/,"").replace(/_/g," "))}</td><td><span class="chip ${h.status==="ok"?"ok":"bad"}">${esc(h.status)}</span></td><td class="n">${h.hours_ago}h ago</td><td class="dim">${esc((h.detail||"").slice(0,160))}</td></tr>`).join("");
   const snap = D.snapshot, live = D.members.filter(m => m.status === "active" || m.status === "ending");
   $("#method").innerHTML = `
+    <p><b>Money out</b> comes from QuickBooks: every line of the Profit and Loss Detail report, synced each morning, grouped into categories you can edit on the Expenses tab. Owner pay (guaranteed payments) is kept separate.</p>
     <p><b>Money in</b> comes from Stripe (every charge, refund, invoice and subscription), mirrored nightly. <b>Cash</b> = what was collected that month, including the card fee families pay on top. <b>Earned</b> spreads an upfront payment evenly across the months it covers.</p>
     <p><b>A member</b> is a family (Stripe customer) with a membership plan. Back-to-back subscriptions with a gap of 45 days or less count as one continuous membership, because renewals in Stripe are a cancel and a new subscription. A family that leaves for longer and returns counts as <i>won back</i>. Freeze, trials, packs, camps, clinics and rentals aren't memberships.</p>
     <p><b>Status:</b> active; ending = a cancellation is scheduled in Stripe; lapsed = ended within the last 45 days, so a new plan would still count as a renewal; past.</p>
