@@ -249,6 +249,34 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
   </section>
 </div>
 
+<!-- ============ INSIGHTS ============ -->
+<div class="tab" id="t-insights" hidden>
+  <section>
+    <h2>Do the ads pay back?</h2><div class="h2-rule"></div>
+    <p class="sub">Every dollar spent on Meta ads, against the families who came from a paid ad (by lead source). Individual ads can only be judged where the lead carried the ad name, which is few, so the totals are the reliable part.</p>
+    <div class="kpis" id="ad-kpis" style="margin-bottom:16px"></div>
+    <div class="grid2">
+      <div class="card"><h3>By quarter</h3><div class="tw" style="border:0"><table id="ad-q" style="min-width:0"><thead></thead><tbody></tbody></table></div></div>
+      <div class="card"><h3>Every lead source, last 12 months</h3><div class="tw" style="border:0"><table id="ad-src" style="min-width:0"><thead></thead><tbody></tbody></table></div></div>
+    </div>
+  </section>
+  <section>
+    <h2>What each program earns after coach pay</h2><div class="h2-rule"></div>
+    <p class="sub">Per active member per month: what they pay vs what their coaching costs at the rates below. Change the rates or group size to match reality; the check underneath compares the model with what payroll actually paid coaches.</p>
+    <div class="tools" id="ue-inputs"></div>
+    <div class="tw"><table id="ue"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="ue-check" style="margin-top:8px"></p>
+  </section>
+  <section>
+    <h2>Why families left, in their words</h2><div class="h2-rule"></div>
+    <p class="sub">Read from their texts around the time they stopped. Families who never said why aren't shown; add what you know on the Members page.</p>
+    <div class="grid2">
+      <div class="card"><h3>Reasons</h3><div class="bars" id="cr-bars"></div></div>
+      <div class="card"><h3>Quotes</h3><div id="cr-quotes" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto"></div></div>
+    </div>
+  </section>
+</div>
+
 <!-- ============ FORECAST ============ -->
 <div class="tab" id="t-forecast" hidden>
   <div class="tools" id="f-toggles"></div>
@@ -353,7 +381,7 @@ async function load(){
 }
 
 // ---------------------------------------------------------------- tabs
-const TABS = [["overview","Overview"],["members","Members"],["revenue","Revenue"],["expenses","Expenses"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
+const TABS = [["overview","Overview"],["members","Members"],["revenue","Revenue"],["expenses","Expenses"],["insights","Insights"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
 function tabs(){
   const cnt = { unsorted: D.unsorted.length };
   $("#tabs").innerHTML = TABS.map(([k,l]) => `<button data-t="${k}">${l}${cnt[k] ? `<span class="cnt">${cnt[k]}</span>` : ""}</button>`).join("");
@@ -410,7 +438,7 @@ function render(){
   $("#rl").onclick = () => load();
   tabs();
   const live = D.members.filter(m => m.status === "active" || m.status === "ending");
-  renderOverview(live); renderPnl(); renderMembers(live); renderRevenue(); renderExpenses(); renderForecast(); renderUnsorted(); renderHealth();
+  renderOverview(live); renderPnl(); renderMembers(live); renderRevenue(); renderExpenses(); renderInsights(); renderForecast(); renderUnsorted(); renderHealth();
   $("#foot").textContent = `Private: only signed-in, approved accounts can load this data. Generated ${gen.toLocaleString()}.`;
 }
 
@@ -1014,6 +1042,91 @@ function renderExpenses(){
     el.disabled = false;
   };
   document.querySelectorAll("#x-map select, #x-map input").forEach(el => el.onchange = () => save(el.dataset.id, el));
+}
+
+
+// ---------------------------------------------------------------- insights
+const quarterOf = (iso) => iso.slice(0,4) + "-Q" + (Math.floor((+iso.slice(5,7) - 1) / 3) + 1);
+function renderInsights(){
+  // ---- ad payback
+  const spendAll = sum(D.adSpend || [], "spend");
+  const paid = D.members.filter(m => m.lead_type === "paid ad");
+  const paidLive = paid.filter(m => m.status === "active" || m.status === "ending");
+  const cpm = paid.length ? spendAll / paid.length : null;
+  const avgVal = paidLive.length ? sum(paidLive, "monthly_value") / paidLive.length : (paid.length ? sum(paid, "monthly_value") / paid.length : 0);
+  const collected = sum(paid, "paid_to_date"), ltv = paid.length ? sum(paid, "projected_lifetime") / paid.length : 0;
+  const k = [
+    ["Ad spend, all time", fmtK(spendAll), "Meta, every campaign", ""],
+    ["Families from ads", fmtN(paid.length), `${paidLive.length} still members`, ""],
+    ["Cost per family", cpm ? fmt$(cpm) : "—", "ad spend ÷ families who joined", ""],
+    ["Payback", cpm && avgVal ? (cpm / avgVal).toFixed(1) + " months" : "—", `at ${fmt$(avgVal)}/mo per family`, cpm && avgVal && cpm / avgVal <= 3 ? "good" : "warn"],
+    ["Collected from them", fmtK(collected), `${(collected / (spendAll || 1)).toFixed(1)}× what the ads cost`, collected >= spendAll ? "good" : "bad"],
+    ["Lifetime value ÷ cost", cpm ? (ltv / cpm).toFixed(1) + "×" : "—", `avg family worth ${fmt$(ltv)} over their life`, cpm && ltv / cpm >= 3 ? "good" : "warn"],
+  ];
+  $("#ad-kpis").innerHTML = k.map(([l,v,s,c]) => `<div class="kpi ${c}"><p class="kpi-l">${l}</p><div class="kpi-v">${v}</div><div class="kpi-s">${s}</div></div>`).join("");
+  const Q = {};
+  const q = (iso) => (Q[quarterOf(iso)] ||= { q: quarterOf(iso), spend:0, leads:0, trials:0, members:0 });
+  (D.adSpend || []).forEach(r => q(r.month).spend += num(r.spend));
+  (D.leadsMonthly || []).filter(r => r.lead_type === "paid ad").forEach(r => q(r.month).leads += num(r.leads));
+  D.trials.filter(t => t.lead_type === "paid ad").forEach(t => q(t.trial_date).trials++);
+  paid.forEach(m => q(m.first_joined).members++);
+  const qrows = Object.values(Q).filter(r => r.spend || r.members).sort((a,b) => a.q < b.q ? 1 : -1);
+  table("#ad-q", qrows, [
+    { k:"q", l:"Quarter", f: r => `<b>${r.q}</b>` },
+    { k:"spend", l:"Spend", n:true, f: r => fmt$(r.spend) },
+    { k:"leads", l:"Leads", n:true },
+    { k:"trials", l:"Trials", n:true },
+    { k:"members", l:"Joined", n:true },
+    { k:"cpl", l:"Per lead", n:true, v: r => r.leads ? r.spend / r.leads : null, f: r => r.leads ? fmt$(r.spend / r.leads) : "—" },
+    { k:"cpf", l:"Per family", n:true, v: r => r.members ? r.spend / r.members : null, f: r => r.members ? fmt$(r.spend / r.members) : (r.spend ? '<span class="chip bad">none</span>' : "—") },
+  ], { sort:"q", dir:-1 });
+  const since = addDays(todayStr, -365);
+  const S = {};
+  const sx = (k) => (S[k] ||= { src:k, leads:0, trials:0, members:0, paid:0, ltv:0 });
+  (D.leadsMonthly || []).filter(r => r.month >= since.slice(0,7) + "-01").forEach(r => sx(r.lead_type).leads += num(r.leads));
+  D.trials.filter(t => t.trial_date >= since).forEach(t => sx(t.lead_type || "unknown").trials++);
+  D.members.filter(m => m.first_joined >= since).forEach(m => { const o = sx(m.lead_type || "unknown"); o.members++; o.paid += num(m.paid_to_date); o.ltv += num(m.projected_lifetime); });
+  const srows = Object.values(S).filter(r => r.src !== "import" && (r.leads || r.members));
+  table("#ad-src", srows, [
+    { k:"src", l:"Source", f: r => `<b>${esc(r.src)}</b>` },
+    { k:"leads", l:"Leads", n:true },
+    { k:"members", l:"Joined", n:true },
+    { k:"rate", l:"Lead → family", n:true, v: r => r.leads ? r.members / r.leads : null, f: r => r.leads ? pct(r.members, r.leads) : "—" },
+    { k:"ltv", l:"Avg lifetime", n:true, v: r => r.members ? r.ltv / r.members : null, f: r => r.members ? fmt$(r.ltv / r.members) : "—" },
+  ], { sort:"members", dir:-1 });
+
+  // ---- program unit economics
+  const U = Object.assign({ private: 25, group: 40, size: 4, sessions: 4.33 }, D.settings?.unit_econ || {});
+  $("#ue-inputs").innerHTML = [["private","Coach pay per private session $"],["group","Coach pay per group session $"],["size","Players per group"],["sessions","Sessions per month"]]
+    .map(([k,l]) => `<label class="hint" style="display:flex;align-items:center;gap:6px">${l}<input type="number" step="${k==="sessions"?0.01:1}" min="0" data-k="${k}" value="${U[k]}" style="width:80px"></label>`).join("");
+  $("#ue-inputs").querySelectorAll("input").forEach(el => el.onchange = () => {
+    const v = Number(el.value); if (!(v > 0)) return; U[el.dataset.k] = v; D.settings.unit_econ = { ...U };
+    api("POST", { action:"setting", key:"unit_econ", value: U }).catch(e => alert("Couldn't save: " + e.message)); renderInsights();
+  });
+  const live = D.members.filter(m => m.status === "active" || m.status === "ending");
+  const costOf = (fam) => fam === "private" ? U.private * U.sessions : fam === "group" ? U.group * U.sessions / U.size : fam === "hybrid" ? (U.private + U.group / U.size) * U.sessions : null;
+  const P = {};
+  live.forEach(m => { const f = ["private","group","hybrid"].includes(m.product_family) ? m.product_family : "other"; const o = (P[f] ||= { fam:f, n:0, rev:0 }); o.n++; o.rev += num(m.monthly_value); });
+  const urows = Object.values(P).map(o => { const c = costOf(o.fam); return { ...o, avg: o.rev / o.n, cost: c, margin: c != null ? o.rev / o.n - c : null, total: c != null ? o.rev - c * o.n : null }; });
+  table("#ue", urows, [
+    { k:"fam", l:"Program", f: r => `<b>${r.fam === "other" ? "Other / legacy" : famName(r.fam)}</b>` },
+    { k:"n", l:"Members", n:true },
+    { k:"avg", l:"Pays / month", n:true, f: r => fmt$(r.avg) },
+    { k:"cost", l:"Coach cost / month", n:true, f: r => r.cost != null ? fmt$(r.cost) : "—" },
+    { k:"margin", l:"Left per member", n:true, f: r => r.margin != null ? `<b>${fmt$(r.margin)}</b> <span class="dim">(${pct(r.margin, r.avg)})</span>` : "—" },
+    { k:"total", l:"Left per month, all", n:true, f: r => r.total != null ? fmt$(r.total) : "—" },
+  ], { sort:"total", dir:-1, total: rs => `<tr class="tot"><td>All</td><td class="n">${sum(rs,"n")}</td><td class="n">${fmt$(sum(rs,"rev") / (sum(rs,"n") || 1))}</td><td class="n"></td><td class="n"></td><td class="n">${fmt$(sum(rs.filter(r => r.total != null),"total"))}</td></tr>` });
+  const modelled = urows.filter(r => r.cost != null).reduce((a,r) => a + r.cost * r.n, 0);
+  const lb = lastFull(1)[0]; const actual = lb ? num(outByMonth(true)[lb]?.["Coaches & payroll"]) : 0;
+  $("#ue-check").innerHTML = lb ? `Check: at these rates, coaching current members should cost about <b>${fmt$(modelled)}/month</b>. Coach payroll in ${mLabel(lb)} was <b>${fmt$(actual)}</b> (includes camps, clinics, futsal and payroll taxes, so it should be a bit higher). ${actual > modelled * 1.5 ? "Much higher than the model: rates or group sizes are probably off, or coaches are paid for more than sessions." : actual < modelled * 0.7 ? "Lower than the model: groups are likely bigger than set here." : "Close enough that the model is a fair guide."}` : "";
+
+  // ---- churn reasons
+  const cr = D.churnReasons || [];
+  const byR = {}; cr.forEach(r => byR[r.reason] = (byR[r.reason]||0) + 1);
+  $("#cr-bars").innerHTML = Object.entries(byR).sort((a,b) => b[1]-a[1]).map(([k,n]) => bar(esc(k), n, cr.length, `<b>${n}</b> · ${pct(n, cr.length)}`)).join("") || "<p class='hint'>No reasons found in texts yet.</p>";
+  const nameOf = Object.fromEntries(D.members.map(m => [m.customer_id, m.name]));
+  $("#cr-quotes").innerHTML = cr.filter(r => r.quote).sort((a,b) => a.span_ended < b.span_ended ? 1 : -1).map(r =>
+    `<div style="border-left:3px solid var(--rule);padding:2px 0 2px 12px"><div style="font-size:14px">“${esc(r.quote)}”</div><div class="hint">${esc(nameOf[r.customer_id] || "a family")} · left ${dLabel(r.span_ended)} · <b>${esc(r.reason)}</b></div></div>`).join("") || "<p class='hint'>No quotes yet.</p>";
 }
 
 function renderHealth(){
