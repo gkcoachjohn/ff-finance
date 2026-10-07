@@ -427,6 +427,8 @@ const statusChip = (s) => ({active:'<span class="chip ok">active</span>', ending
 const famName = (f) => FAM_LABEL[f] || f;
 const plan = (p) => esc(String(p ?? "—").replace(/\s*\(Dynamic:[^)]*\)/gi, ""));
 const src = (r) => esc(r.lead_type || "—") + (r.ad_name ? `<br><span class="dim">${esc(r.ad_name)}</span>` : "");
+const msOf = (r) => r.memberships != null ? num(r.memberships) : 1;
+const totalMs = (rows) => rows.reduce((a, r) => a + msOf(r), 0);
 const who = (r) => `${esc(r.name || "(no name)")}${r.email ? `<br><span class="dim">${esc(r.email)}</span>` : ""}`;
 
 // ---------------------------------------------------------------- render
@@ -461,7 +463,7 @@ function renderOverview(live){
   const k = [
     ["Collected this month", fmt$(tot(cash[curMonth])), `${fmt$(tot(cash[lastM]))} all of last month`, ""],
     ["Year to date", fmtK(ytd), lytd ? `${ytd >= lytd ? "+" : ""}${Math.round(100*(ytd-lytd)/lytd)}% vs same point last year` : "", ""],
-    ["MRR", fmt$(mrr), `${live.length} active members`, ""],
+    ["MRR", fmt$(mrr), `${totalMs(live)} memberships · ${live.length} families`, ""],
     ["Due next 30 days", fmt$(sum(next30, "next_payment_amount")), `${next30.length} scheduled payments`, ""],
     ["Past due", fmt$(pastDue), `${D.openInvoices.length} open invoices`, pastDue > 0 ? "warn" : ""],
     ["Avg member lifetime", fmt$(live.length ? sum(live,"projected_lifetime")/live.length : 0), "projected, current members", ""],
@@ -497,7 +499,8 @@ function memChart(id, n){
     { type:"bar", label:"New", data: ms.map(m => by[m]?.new_members ?? 0), backgroundColor: cssVar("--accent"), stack:"s" },
     { type:"bar", label:"Came back", data: ms.map(m => by[m]?.returning_members ?? 0), backgroundColor: cssVar("--s2"), stack:"s" },
     { type:"bar", label:"Cancelled", data: ms.map(m => -(by[m]?.churned ?? 0)), backgroundColor: cssVar("--crit"), stack:"s" },
-    { type:"line", label:"Active (end of month)", data: ms.map(m => by[m]?.active_end ?? null), borderColor: cssVar("--ink-2"), backgroundColor: cssVar("--ink-2"), tension:.25, pointRadius:2, yAxisID:"y1" } ]},
+    { type:"line", label:"Families (end of month)", data: ms.map(m => by[m]?.active_end ?? null), borderColor: cssVar("--muted"), backgroundColor: cssVar("--muted"), borderDash:[4,3], tension:.25, pointRadius:0, yAxisID:"y1" },
+    { type:"line", label:"Memberships (end of month)", data: ms.map(m => by[m]?.memberships_end ?? by[m]?.active_end ?? null), borderColor: cssVar("--ink-2"), backgroundColor: cssVar("--ink-2"), tension:.25, pointRadius:2, yAxisID:"y1" } ]},
     options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, title:{display:true,text:"families"} }, y1:{ position:"right", grid:{ drawOnChartArea:false }, beginAtZero:true, title:{display:true,text:"active"} } } } });
 }
 
@@ -505,8 +508,8 @@ function renderMembers(live){
   const act = live.filter(m => m.status === "active"), ending = live.filter(m => m.status === "ending"), lapsed = D.members.filter(m => m.status === "lapsed");
   const mrr = sum(live, "monthly_value");
   const k = [
-    ["Active members", fmtN(live.length), `${act.length} active · ${ending.length} ending`, ""],
-    ["MRR", fmt$(mrr), `avg ${fmt$(live.length ? mrr/live.length : 0)} / member / month`, ""],
+    ["Active memberships", fmtN(totalMs(live)), `${live.length} families · ${totalMs(act)} active, ${totalMs(ending)} ending`, ""],
+    ["MRR", fmt$(mrr), `avg ${fmt$(totalMs(live) ? mrr/totalMs(live) : 0)} / membership / month`, ""],
     ["Remaining on contracts", fmt$(sum(live,"remaining_contract")), "scheduled inside current terms", ""],
     ["Avg paid to date", fmt$(live.length ? sum(live,"paid_to_date")/live.length : 0), "current members", ""],
     ["Avg projected lifetime", fmt$(live.length ? sum(live,"projected_lifetime")/live.length : 0), "paid + expected future", ""],
@@ -544,7 +547,8 @@ function renderMembers(live){
 
   // active table
   const cols = [
-    { k:"name", l:"Family", f: who, cls:"name" },
+    { k:"name", l:"Family", f: r => who(r) + (r.players ? `<br><span class="dim">⚽ ${esc(r.players)}</span>` : ""), cls:"name" },
+    { k:"memberships", l:"Memberships", n:true, v: msOf, f: r => `<b>${msOf(r)}</b>` + (r.plans && r.plans.includes(" | ") ? `<br><span class="dim">${r.plans.split(" | ").map(esc).join("<br>")}</span>` : "") },
     { k:"status", l:"Status", f: r => statusChip(r.status) + (r.past_due > 0 ? ` <span class="chip bad">owes ${fmt$(r.past_due)}</span>` : "") },
     { k:"plan_name", l:"Plan", f: r => `${plan(r.plan_name)}<br><span class="dim">${famName(r.product_family)} · ${r.term_months}-mo · ${r.cadence}${r.coupon ? " · " + esc(r.coupon) : ""}</span>` },
     { k:"first_joined", l:"Joined", f: r => dLabel(r.first_joined) + (r.won_back ? ' <span class="chip mute">returned</span>' : "") },
@@ -561,17 +565,17 @@ function renderMembers(live){
     const q = $("#m-search").value.trim().toLowerCase(), st = $("#m-status").value;
     const pool = st === "lapsed" ? D.members.filter(m => m.status === "lapsed") : st === "live" ? live : live.filter(m => m.status === st);
     const rows = pool.filter(m => !q || (m.name||"").toLowerCase().includes(q) || (m.email||"").toLowerCase().includes(q));
-    $("#m-count").textContent = `${rows.length} families · ${fmt$(sum(rows,"monthly_value"))}/mo`;
+    $("#m-count").textContent = `${totalMs(rows)} memberships · ${rows.length} families · ${fmt$(sum(rows,"monthly_value"))}/mo`;
     table("#active", rows, cols, { sort:"monthly_value", dir:-1,
-      total: rs => `<tr class="tot"><td colspan="5">Total (${rs.length})</td><td class="n">${fmt$(sum(rs,"monthly_value"))}</td><td class="n">${fmt$(sum(rs,"paid_to_date"))}</td><td class="n">${fmt$(sum(rs,"remaining_contract"))}</td><td class="n">${fmt$(sum(rs,"projected_lifetime"))}</td><td colspan="3"></td></tr>` });
+      total: rs => `<tr class="tot"><td>Total (${rs.length} families)</td><td class="n">${totalMs(rs)}</td><td colspan="4"></td><td class="n">${fmt$(sum(rs,"monthly_value"))}</td><td class="n">${fmt$(sum(rs,"paid_to_date"))}</td><td class="n">${fmt$(sum(rs,"remaining_contract"))}</td><td class="n">${fmt$(sum(rs,"projected_lifetime"))}</td><td colspan="3"></td></tr>` });
   };
   $("#m-search").oninput = drawActive; $("#m-status").onchange = drawActive; drawActive();
 
   memChart("c-mem", 24);
 
   // plan mix
-  const grp = (f) => { const m = {}; live.forEach(r => { const k = f(r); m[k] = m[k] || {n:0, v:0}; m[k].n++; m[k].v += num(r.monthly_value); }); return Object.entries(m).sort((a,b)=>b[1].n-a[1].n); };
-  const block = (title, rows) => `<p class="hint" style="margin:10px 0 6px">${title}</p><div class="bars">` + rows.map(([k,o]) => bar(esc(k), o.n, live.length, `<b>${o.n}</b> · ${fmt$(o.v)}/mo`)).join("") + "</div>";
+  const grp = (f) => { const m = {}; live.forEach(r => { const k = f(r); m[k] = m[k] || {n:0, v:0}; m[k].n += msOf(r); m[k].v += num(r.monthly_value); }); return Object.entries(m).sort((a,b)=>b[1].n-a[1].n); };
+  const block = (title, rows) => `<p class="hint" style="margin:10px 0 6px">${title}</p><div class="bars">` + rows.map(([k,o]) => bar(esc(k), o.n, totalMs(live), `<b>${o.n}</b> · ${fmt$(o.v)}/mo`)).join("") + "</div>";
   $("#mix").innerHTML = block("Program", grp(r => famName(r.product_family))) + block("Commitment", grp(r => (r.term_months || "?") + " months")) +
     block("How they pay", grp(r => r.cadence === "upfront" ? "Upfront" : "Monthly")) + block("Discount", grp(r => r.coupon ? "Has a coupon" : "Full price"));
 
@@ -1002,7 +1006,7 @@ function renderExpenses(){
     { k:"cat", l:"Category", f: r => `<b>${esc(r.cat)}</b>` },
     { k:"type", l:"Type", f: r => r.type === "fixed" ? '<span class="chip mute">fixed</span>' : r.type === "owner" ? '<span class="chip warn">owner</span>' : '<span class="chip ok">variable</span>' },
     { k:"budget", l:"Monthly budget", n:true, f: r => `<input type="number" min="0" step="50" class="bud" data-cat="${esc(r.cat)}" value="${r.budget ?? ""}" style="width:110px;text-align:right">${r.manual ? ' <span class="chip ok">yours</span>' : ""}` },
-    { k:"last", l: lb ? mLabel(lb) + " actual" : "Last booked", n:true, f: r => { const over = r.budget > 0 && r.last > r.budget * 1.1 && r.last - r.budget > 50;   // $0 budgets (e.g. owner extras, handled by the forecast) never flag return `<span class="chip ${over ? "bad" : "ok"}">${fmt$(r.last)}</span>`; } },
+    { k:"last", l: lb ? mLabel(lb) + " actual" : "Last booked", n:true, f: r => { const over = r.budget > 0 && r.last > r.budget * 1.1 && r.last - r.budget > 50; /* $0 budgets (owner extras, handled by the forecast) never flag */ return `<span class="chip ${over ? "bad" : "ok"}">${fmt$(r.last)}</span>`; } },
     { k:"a3", l:"3-mo avg", n:true, f: r => fmt$(r.a3) },
     { k:"cur", l: mLabel(curMonth) + " so far", n:true, f: r => r.cur ? fmt$(r.cur) : '<span class="dim">·</span>' },
   ], { sort:"budget", dir:-1, total: rs => `<tr class="tot"><td colspan="2">Total</td><td class="n">${fmt$(sum(rs,"budget"))}</td><td class="n">${fmt$(sum(rs,"last"))}</td><td class="n">${fmt$(sum(rs,"a3"))}</td><td class="n">${fmt$(sum(rs,"cur"))}</td></tr>` });
@@ -1119,7 +1123,7 @@ function renderInsights(){
   const live = D.members.filter(m => m.status === "active" || m.status === "ending");
   const costOf = (fam) => fam === "private" ? U.private * U.sessions : fam === "group" ? U.group * U.sessions / U.size : fam === "hybrid" ? (U.private + U.group / U.size) * U.sessions : null;
   const P = {};
-  live.forEach(m => { const f = ["private","group","hybrid"].includes(m.product_family) ? m.product_family : "other"; const o = (P[f] ||= { fam:f, n:0, rev:0 }); o.n++; o.rev += num(m.monthly_value); });
+  live.forEach(m => { const f = ["private","group","hybrid"].includes(m.product_family) ? m.product_family : "other"; const o = (P[f] ||= { fam:f, n:0, rev:0 }); o.n += msOf(m); o.rev += num(m.monthly_value); });
   const urows = Object.values(P).map(o => { const c = costOf(o.fam); return { ...o, avg: o.rev / o.n, cost: c, margin: c != null ? o.rev / o.n - c : null, total: c != null ? o.rev - c * o.n : null }; });
   table("#ue", urows, [
     { k:"fam", l:"Program", f: r => `<b>${r.fam === "other" ? "Other / legacy" : famName(r.fam)}</b>` },
