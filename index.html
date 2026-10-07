@@ -693,11 +693,18 @@ function forecast(on){
   const bud = Object.fromEntries(D.budgets.filter(b => b.category !== "Estimated taxes").map(b => [b.category, num(b.monthly)]));
   const fixed = Object.entries(bud).filter(([c]) => catType(c) === "fixed").reduce((a,[,v]) => a+v, 0);
   const variable = Object.entries(bud).filter(([c]) => catType(c) === "variable").reduce((a,[,v]) => a+v, 0);
-  const owner = num(bud["Owner pay"]);
-  // share of owner pay that is guaranteed payments (taxed via set-aside) vs salaries (withheld already)
-  const l6 = new Set(base6); const gp = D.transactions.filter(t => /guaranteed payment/i.test(t.account_name || "") && l6.has(t.txn_date.slice(0,7) + "-01")).reduce((a,t) => a + num(t.amount), 0);
-  const ownAll = D.expenses.filter(r => r.owner_pay && l6.has(r.month)).reduce((a,r) => a + num(r.amount), 0);
-  const gpShare = ownAll ? gp / ownAll : 0.5;
+  // Owner pay = the $8,400/mo payroll salaries (flat, from the "Owner salary" budget) + the seasonal
+  // extras (guaranteed payments) you take when camps / futsal bring money in. The extras follow
+  // "camps, futsal, other" income at the share you've actually taken over the last 12 booked months.
+  const salary = num(bud["Owner salary"]);
+  const booked12 = lastFull(12), qi = {}; D.qboIncome.forEach(r => qi[r.month] = (qi[r.month]||0) + num(r.amount));
+  const membCash = {}; D.revenue.filter(r => ["group","private","hybrid","membership","online"].includes(r.family)).forEach(r => membCash[r.month] = (membCash[r.month]||0) + num(r.cash));
+  const otherHist = booked12.reduce((a,m) => a + Math.max(0, (qi[m]||0) - (membCash[m]||0)), 0);
+  const extraHist = D.expenses.filter(r => r.category === "Owner extra (camps/futsal)" && booked12.includes(r.month)).reduce((a,r) => a + num(r.amount), 0);
+  const histShare = otherHist ? Math.min(1, extraHist / otherHist) : 0;
+  const setShare = D.settings?.owner_extra_share;
+  const extraShare = setShare != null && setShare !== "" ? Math.max(0, Math.min(1, Number(setShare))) : histShare;
+  forecast.meta = { salary, extraShare, histShare };
   const rate = Number(D.settings?.tax_rate ?? 0.25);
   const evAmt = (e, m) => { const k = monthsDiff(e.start_month, m); if (k < 0 || !e.active) return 0; if (e.months && k >= e.months) return 0; return num(e.amount) + num(e.step) * k; };
   let cash = cashToday().total, taxAccrued = 0;
@@ -712,14 +719,15 @@ function forecast(on){
     const memb = num(fb.members_income), neu = on.has("signups") ? num(fb.new_members_income) : 0, other = num(fb.other_income) * f;
     const income = memb + neu + other;
     const costs = (fixed + variable * (baseInc ? Math.min(3, ((income + opIn) / f) / baseInc) : 1)) * f;
-    const own = owner * f;
-    const profitPreGP = income + opIn - costs - own * (1 - gpShare);   // one-off items (loan proceeds etc.) aren't profit
+    const extra = num(fb.other_income) * f * extraShare;
+    const own = salary * f + extra;
+    const profitPreGP = income + opIn - costs - salary * f;   // salaries are taxed through payroll; the set-aside covers profit incl. extras   // one-off items (loan proceeds etc.) aren't profit
     taxAccrued += Math.max(0, profitPreGP) * rate;
     let taxPaid = 0; const mm = +m.slice(5,7);
     if (on.has("taxes") && [1,4,6,9].includes(mm)) { taxPaid = taxAccrued; taxAccrued = 0; }
     const net = income + evIn - costs - own - evOut - taxPaid;
     cash += net;
-    return { month: m, memb, neu, other, evIn, costs, own, evOut, taxPaid, setAside: Math.max(0, profitPreGP) * rate, net, cash, partial: i === 0 };
+    return { month: m, memb, neu, other, evIn, costs, own, extra, evOut, taxPaid, setAside: Math.max(0, profitPreGP) * rate, net, cash, partial: i === 0 };
   });
 }
 // Cash today: QuickBooks bank balance + Stripe money for months whose income isn't entered in
@@ -741,6 +749,9 @@ function renderForecast(){
     api("POST", { action:"setting", key:"scenarios_on", value:[...on] }).catch(() => {});
   });
   const F = forecast(on);
+  $("#f-toggles").insertAdjacentHTML("beforeend", `<label class="chip mute" style="padding:7px 10px">Owner extras: <input type="number" id="f-xshare" min="0" max="100" step="5" value="${Math.round((forecast.meta?.extraShare ?? 0) * 100)}" style="width:56px;margin:0 4px"> % of camp/futsal income</label>`);
+  $("#f-xshare").onchange = (e) => { const v = Number(e.target.value); if (!(v >= 0 && v <= 100)) return; D.settings.owner_extra_share = v / 100; renderForecast();
+    api("POST", { action:"setting", key:"owner_extra_share", value: v / 100 }).catch(err => alert("Couldn't save: " + err.message)); };
   if (!F.length) { $("#f-kpis").innerHTML = '<p class="hint">Forecast inputs build nightly; check back tomorrow.</p>'; return; }
   const ct = cashToday(), start = ct.total;
   const low = F.reduce((a,r) => r.cash < a.cash ? r : a, F[0]);
@@ -758,7 +769,8 @@ function renderForecast(){
     { type:"bar", label:"New families", data: F.map(r => Math.round(r.neu)), backgroundColor: cssVar("--s2"), stack:"in" },
     { type:"bar", label:"Camps, futsal, other", data: F.map(r => Math.round(r.other + r.evIn)), backgroundColor: cssVar("--s3"), stack:"in" },
     { type:"bar", label:"Costs", data: F.map(r => -Math.round(r.costs)), backgroundColor: cssVar("--crit"), stack:"out" },
-    { type:"bar", label:"Owner pay", data: F.map(r => -Math.round(r.own)), backgroundColor: cssVar("--ink-2"), stack:"out" },
+    { type:"bar", label:"Owner salary", data: F.map(r => -Math.round(r.own - r.extra)), backgroundColor: cssVar("--ink-2"), stack:"out" },
+    { type:"bar", label:"Owner extra (camps/futsal)", data: F.map(r => -Math.round(r.extra)), backgroundColor: cssVar("--s10"), stack:"out" },
     { type:"bar", label:"Loan, build-out, taxes", data: F.map(r => -Math.round(r.evOut + r.taxPaid)), backgroundColor: cssVar("--warn"), stack:"out" },
     { type:"line", label:"Cash in the bank", data: F.map(r => Math.round(r.cash)), borderColor: cssVar("--ink"), backgroundColor: cssVar("--ink"), tension:.25, pointRadius:3, yAxisID:"y" } ]},
     options:{ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{ color: cssVar("--rule-soft") }, ticks:{ callback: v => fmtK(v) } } } } });
@@ -769,20 +781,20 @@ function renderForecast(){
     { k:"other", l:"Camps etc.", n:true, f: r => fmt$(r.other) },
     { k:"evIn", l:"One-off in", n:true, f: r => r.evIn ? fmt$(r.evIn) : '<span class="dim">·</span>' },
     { k:"costs", l:"Costs", n:true, f: r => fmt$(r.costs) },
-    { k:"own", l:"Owner pay", n:true, f: r => fmt$(r.own) },
+    { k:"own", l:"Owner pay", n:true, f: r => fmt$(r.own) + (r.extra >= 1 ? `<br><span class="dim">incl. ${fmt$(r.extra)} extra</span>` : "") },
     { k:"evOut", l:"One-off out", n:true, f: r => r.evOut ? fmt$(r.evOut) : '<span class="dim">·</span>' },
     { k:"taxPaid", l:"Est. tax", n:true, f: r => r.taxPaid ? fmt$(r.taxPaid) : '<span class="dim">·</span>' },
     { k:"net", l:"Net", n:true, f: r => `<span style="color:${r.net >= 0 ? cssVar("--accent-ink") : cssVar("--crit")}">${fmt$(r.net)}</span>` },
     { k:"cash", l:"Cash", n:true, f: r => `<b style="color:${r.cash >= 0 ? "inherit" : cssVar("--crit")}">${fmt$(r.cash)}</b>` },
   ], { sort:"month", dir:1 });
   const joinsTxt = D.forecastBase.length > 1 ? "" : "";
-  $("#f-method").innerHTML = `<b>How it's built:</b> current members = scheduled Stripe payments plus each member's chance of staying (your own history); new families = your recent pace of joins, with the same churn; camps/futsal/other = the same month last year from your books; costs = your budgets, with variable ones (coach pay, equipment, fees…) moving with income and fixed ones flat; cash starts from today's QuickBooks bank balance.${joinsTxt}`;
+  $("#f-method").innerHTML = `<b>How it's built:</b> current members = scheduled Stripe payments plus each member's chance of staying (your own history); new families = your recent pace of joins, with the same churn; camps/futsal/other = the same month last year from your books; costs = your budgets, with variable ones (coach pay, equipment, fees…) moving with income and fixed ones flat; owner pay = the ${fmt$(forecast.meta.salary)}/mo salary budget plus camp/futsal extras at the % set above (you took ${Math.round(forecast.meta.histShare*100)}% of that income over the last 12 booked months); cash starts from today's QuickBooks bank balance.${joinsTxt}`;
 
   // tax set-aside
   const rate = Number(D.settings?.tax_rate ?? 0.25), yr = todayStr.slice(0,4);
   const { inc } = incomeByMonth(); const outAll = outByMonth(true);
   const ms = Object.keys(inc).filter(m => m.slice(0,4) === yr && m < curMonth);
-  const salaries = D.expenses.filter(r => r.owner_pay && r.month.slice(0,4) === yr).reduce((a,r) => a + num(r.amount), 0) - D.transactions.filter(t => /guaranteed payment/i.test(t.account_name || "") && t.txn_date.slice(0,4) === yr).reduce((a,t) => a + num(t.amount), 0);
+  const salaries = D.expenses.filter(r => r.category === "Owner salary" && r.month.slice(0,4) === yr).reduce((a,r) => a + num(r.amount), 0);
   const nonOwner = ms.reduce((a,m) => a + tot(outAll[m]), 0) - D.expenses.filter(r => r.owner_pay && ms.includes(r.month)).reduce((a,r) => a + num(r.amount), 0);
   const basis = ms.reduce((a,m) => a + num(inc[m]), 0) - nonOwner - salaries;
   const paid = D.transactions.filter(t => /estimated tax/i.test(t.account_name || "") && t.txn_date.slice(0,4) === yr).reduce((a,t) => a + num(t.amount), 0);
@@ -852,15 +864,16 @@ function renderUnsorted(){
 
 
 // ---------------------------------------------------------------- money out (QuickBooks)
-const CAT_ORDER = ["Coaches & payroll","Manager pay","Rent & facility","Ads & marketing","Equipment & gear","Software & subscriptions","Travel & vehicle","Card & bank fees","Insurance","Professional fees","Taxes & licenses","Training & education","Loan & interest","Estimated taxes","Other","Owner pay"];
-const catColor = (c) => c === "Owner pay" ? cssVar("--ink-2") : cssVar("--s" + (((CAT_ORDER.indexOf(c) + 13) % 10) + 1));
+const OWNER_CATS = new Set(["Owner salary", "Owner extra (camps/futsal)", "Owner pay"]);
+const CAT_ORDER = ["Coaches & payroll","Manager pay","Rent & facility","Ads & marketing","Equipment & gear","Software & subscriptions","Travel & vehicle","Card & bank fees","Insurance","Professional fees","Taxes & licenses","Training & education","Loan & interest","Estimated taxes","Other","Owner salary","Owner extra (camps/futsal)"];
+const catColor = (c) => c === "Owner salary" ? cssVar("--ink-2") : c === "Owner extra (camps/futsal)" ? cssVar("--s10") : cssVar("--s" + (((CAT_ORDER.indexOf(c) + 13) % 10) + 1));
 function categoryOfTx(t){
-  const p = (D.payees || []).find(x => x.name === t.name && (!x.until_date || t.txn_date <= x.until_date));
+  const p = /payroll|wages|^taxes$/i.test(t.account_name || "") ? (D.payees || []).find(x => x.name === t.name && (!x.until_date || t.txn_date <= x.until_date)) : null;
   if (p) return p.category;
   const m = D.categoryMap.find(x => x.account_id === t.account_id); return m ? m.category : "Other";
 }
 function catType(c){
-  if (c === "Owner pay") return "owner";
+  if (OWNER_CATS.has(c)) return "owner";
   const rows = D.expenses.filter(r => r.category === c); const f = sum(rows.filter(r => r.cost_type === "fixed"), "amount"), v = sum(rows.filter(r => r.cost_type !== "fixed"), "amount");
   return f >= v ? "fixed" : "variable";
 }
@@ -898,7 +911,7 @@ function renderPnl(){
     ["Money in, " + yr, fmtK(inY), ytdMs.some(m => est[m]) ? "books + Stripe for unbooked months" : "as booked in QuickBooks", ""],
     ["Money out, " + yr, fmtK(outY), "QuickBooks, before owner pay", ""],
     ["Profit before owner pay", fmtK(inY - outY), pct(inY - outY, inY) + " margin", inY - outY >= 0 ? "good" : "bad"],
-    ["Owner pay, " + yr, fmtK(ownY), "guaranteed payments", ""],
+    ["Owner pay, " + yr, fmtK(ownY), "salaries + camp/futsal extras", ""],
     ["Profit after owner pay", fmtK(inY - outY - ownY), "what the business kept", inY - outY - ownY >= 0 ? "good" : "bad"],
     ["Cash in the bank (est.)", fmt$(cashToday().total), cashToday().pending ? `QuickBooks shows ${fmt$(cashNow)}; + ${fmtK(cashToday().pending)} Stripe deposits not yet entered · card owes ${fmt$(cardNow)}` : `${bank.length} accounts · card owes ${fmt$(cardNow)}`, cashToday().total < 0 ? "bad" : cashToday().total < burn ? "warn" : ""],
     ["Avg month (booked)", (net3 >= 0 ? "+" : "") + fmtK(net3), `${l3.map(mLabel).join(", ")}: ${fmtK(inc3)} in · ${fmtK(burn)} out incl. owner pay`, net3 >= 0 ? "good" : "bad"],
@@ -928,8 +941,8 @@ function renderExpenses(){
   const all = outByMonth(true), ops = outByMonth(false);
   const yr = todayStr.slice(0,4); const lm = monthsBack(2)[0];
   const ytd = {}; Object.entries(all).forEach(([m,o]) => { if (m.slice(0,4) === yr) Object.entries(o).forEach(([c,v]) => ytd[c] = (ytd[c]||0) + v); });
-  const ytdOps = Object.entries(ytd).filter(([c]) => c !== "Owner pay").reduce((a,[,v]) => a+v, 0);
-  const top = Object.entries(ytd).filter(([c]) => c !== "Owner pay").sort((a,b) => b[1]-a[1])[0] || ["—",0];
+  const ytdOps = Object.entries(ytd).filter(([c]) => !OWNER_CATS.has(c)).reduce((a,[,v]) => a+v, 0);
+  const top = Object.entries(ytd).filter(([c]) => !OWNER_CATS.has(c)).sort((a,b) => b[1]-a[1])[0] || ["—",0];
   const l3 = lastFull(3);
   const fixedCats = new Set(D.categoryMap.filter(m => m.cost_type === "fixed" && !m.owner_pay).map(m => m.category));
   const avg = (f) => l3.reduce((a,m) => a + D.expenses.filter(r => r.month === m && f(r)).reduce((x,r) => x + num(r.amount), 0), 0) / 3;
@@ -965,7 +978,7 @@ function renderExpenses(){
   // category x month table
   const ms6 = monthsBack(7).slice(0, 7).reverse();   // this month + 6 before, newest first
   const cats = [...new Set([...CAT_ORDER.filter(c => ytd[c] !== undefined), ...Object.keys(ytd)])];
-  const typeOf = (c) => c === "Owner pay" ? "owner" : fixedCats.has(c) ? "fixed" : "variable";
+  const typeOf = (c) => OWNER_CATS.has(c) ? "owner" : fixedCats.has(c) ? "fixed" : "variable";
   const rows = cats.map(c => ({ cat: c, type: typeOf(c), ...Object.fromEntries(ms6.map(m => [m, num(all[m]?.[c])])), ytd: ytd[c] || 0 }));
   table("#x-table", rows, [
     { k:"cat", l:"Category", f: r => `<b>${esc(r.cat)}</b>` },
@@ -989,7 +1002,7 @@ function renderExpenses(){
     { k:"cat", l:"Category", f: r => `<b>${esc(r.cat)}</b>` },
     { k:"type", l:"Type", f: r => r.type === "fixed" ? '<span class="chip mute">fixed</span>' : r.type === "owner" ? '<span class="chip warn">owner</span>' : '<span class="chip ok">variable</span>' },
     { k:"budget", l:"Monthly budget", n:true, f: r => `<input type="number" min="0" step="50" class="bud" data-cat="${esc(r.cat)}" value="${r.budget ?? ""}" style="width:110px;text-align:right">${r.manual ? ' <span class="chip ok">yours</span>' : ""}` },
-    { k:"last", l: lb ? mLabel(lb) + " actual" : "Last booked", n:true, f: r => { const over = r.budget != null && r.last > r.budget * 1.1 && r.last - r.budget > 50; return `<span class="chip ${over ? "bad" : "ok"}">${fmt$(r.last)}</span>`; } },
+    { k:"last", l: lb ? mLabel(lb) + " actual" : "Last booked", n:true, f: r => { const over = r.budget > 0 && r.last > r.budget * 1.1 && r.last - r.budget > 50;   // $0 budgets (e.g. owner extras, handled by the forecast) never flag return `<span class="chip ${over ? "bad" : "ok"}">${fmt$(r.last)}</span>`; } },
     { k:"a3", l:"3-mo avg", n:true, f: r => fmt$(r.a3) },
     { k:"cur", l: mLabel(curMonth) + " so far", n:true, f: r => r.cur ? fmt$(r.cur) : '<span class="dim">·</span>' },
   ], { sort:"budget", dir:-1, total: rs => `<tr class="tot"><td colspan="2">Total</td><td class="n">${fmt$(sum(rs,"budget"))}</td><td class="n">${fmt$(sum(rs,"last"))}</td><td class="n">${fmt$(sum(rs,"a3"))}</td><td class="n">${fmt$(sum(rs,"cur"))}</td></tr>` });
