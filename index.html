@@ -89,6 +89,8 @@ td.dim,span.dim{color:var(--muted);font-size:12.5px}
 .hint{color:var(--muted);font-size:12.5px}
 footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted)}
 .cohort td.n{font-weight:600}
+table.grid-t td:first-child{font-weight:600} table.grid-t td.sec{background:var(--surface-2);font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 12px}
+table.grid-t td .dim{display:block;font-weight:400}
 @media (max-width:600px){ .kpis{grid-template-columns:1fr 1fr} .kpi-v{font-size:1.3rem} .wrap{padding:0 16px 60px} .bar-row{grid-template-columns:100px 1fr 90px} h1{font-size:1.5rem} }
 </style>
 </head>
@@ -249,6 +251,32 @@ footer{border-top:1px solid var(--rule);margin-top:40px;padding-top:14px;font-fa
   </section>
 </div>
 
+<!-- ============ ADS (media buying) ============ -->
+<div class="tab" id="t-ads" hidden>
+  <div class="tools"><div class="seg" id="ads-loc"><button data-l="all" class="on">All locations</button><button data-l="nashville">Nashville</button><button data-l="franklin">Franklin</button></div>
+    <div class="seg" id="ads-mode"><button data-m="event" class="on">When it happened</button><button data-m="cohort">By the day the lead came in</button></div></div>
+  <p class="sub" id="ads-sub"></p>
+  <section>
+    <div class="tw"><table id="ads-grid" class="grid-t"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="ads-note" style="margin-top:8px"></p>
+  </section>
+  <section>
+    <h2>Week by week</h2><div class="h2-rule"></div>
+    <div class="card"><h3>Ad spend, leads and trials, last 26 weeks</h3><div class="chart" style="height:300px"><canvas id="c-ads"></canvas></div></div>
+  </section>
+  <section>
+    <h2>Campaigns and ads</h2><div class="h2-rule"></div>
+    <p class="sub">Spend and leads are Meta's numbers for each ad. Trials and members only show against an ad when the lead carried the ad name; the rest sit in the "ad not recorded" row, so the column totals still add up.</p>
+    <div class="tools"><div class="seg" id="ads-win"><button data-w="all">All time</button><button data-w="30" class="on">Last 30 days</button><button data-w="7">Last 7 days</button><button data-w="1">Yesterday</button></div>
+      <div class="seg" id="ads-by"><button data-b="campaign" class="on">By campaign</button><button data-b="ad">By ad</button></div></div>
+    <div class="tw tall"><table id="ads-tbl"><thead></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>How these are counted</h2><div class="h2-rule"></div>
+    <div class="card" id="ads-method" style="font-size:14px"></div>
+  </section>
+</div>
+
 <!-- ============ INSIGHTS ============ -->
 <div class="tab" id="t-insights" hidden>
   <section>
@@ -381,7 +409,7 @@ async function load(){
 }
 
 // ---------------------------------------------------------------- tabs
-const TABS = [["overview","Overview"],["members","Members"],["revenue","Revenue"],["expenses","Expenses"],["insights","Insights"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
+const TABS = [["overview","Overview"],["ads","Ads"],["members","Members"],["revenue","Revenue"],["expenses","Expenses"],["insights","Insights"],["forecast","Forecast"],["unsorted","Unsorted"],["health","Health"]];
 function tabs(){
   const cnt = { unsorted: D.unsorted.length };
   $("#tabs").innerHTML = TABS.map(([k,l]) => `<button data-t="${k}">${l}${cnt[k] ? `<span class="cnt">${cnt[k]}</span>` : ""}</button>`).join("");
@@ -440,7 +468,7 @@ function render(){
   $("#rl").onclick = () => load();
   tabs();
   const live = D.members.filter(m => m.status === "active" || m.status === "ending");
-  renderOverview(live); renderPnl(); renderMembers(live); renderRevenue(); renderExpenses(); renderInsights(); renderForecast(); renderUnsorted(); renderHealth();
+  renderOverview(live); renderPnl(); renderMembers(live); renderRevenue(); renderExpenses(); renderInsights(); renderAds(); renderForecast(); renderUnsorted(); renderHealth();
   $("#foot").textContent = `Private: only signed-in, approved accounts can load this data. Generated ${gen.toLocaleString()}.`;
 }
 
@@ -1061,6 +1089,116 @@ function renderExpenses(){
   document.querySelectorAll("#x-map select, #x-map input").forEach(el => el.onchange = () => save(el.dataset.id, el));
 }
 
+
+// ---------------------------------------------------------------- ads (media buying: paid-ad results only)
+const ADS = { loc: "all", mode: "event", win: "30", by: "campaign" };
+function adWindows(){
+  const y = addDays(todayStr, -1);
+  return [
+    { k:"all", l:"All time", from:"0000-00-00", to:y },
+    { k:"30", l:"Last 30 days", from:addDays(y,-29), to:y },
+    { k:"7", l:"Last 7 days", from:addDays(y,-6), to:y },
+    { k:"1", l:"Yesterday", from:y, to:y },
+  ];
+}
+const adLoc = (r) => ADS.loc === "all" || r.location === ADS.loc;
+const adDay = (r) => ADS.mode === "cohort" ? r.lead_day : r.day;
+function adStats(from, to){
+  const inW = (d) => d >= from && d <= to;
+  const ads = (D.mediaAds || []).filter(r => adLoc(r) && inW(r.day));
+  const outs = (D.mediaOutcomes || []).filter(r => adLoc(r) && inW(adDay(r)));
+  const trials = outs.filter(r => r.kind === "trial"), members = outs.filter(r => r.kind === "member");
+  const rep = ADS.loc === "all" ? (D.mediaReply || []).filter(r => inW(r.day)) : null;
+  const unjoined = trials.filter(r => !r.joined);      // a member's own trial fee is already inside their cash
+  return { spend: sum(ads, "spend"), metaLeads: sum(ads, "meta_leads"), clicks: sum(ads, "link_clicks"),
+    crmLeads: outs.filter(r => r.kind === "lead").length, trials: trials.length, members: members.length,
+    cash: sum(members, "cash") + sum(unjoined, "cash"), ltv: sum(members, "ltv") + sum(unjoined, "cash"),
+    openers: rep ? sum(rep, "openers") : null, replies: rep ? sum(rep, "reply1") : null };
+}
+const per = (a, b) => b ? fmt$(a / b) : (a ? '<span class="dim">none yet</span>' : "—");
+const times = (a, b) => b ? (a / b).toFixed(1) + "×" : "—";
+function renderAds(){
+  if (!D.mediaAds) { $("#ads-sub").textContent = "The ads feed hasn't loaded. Refresh in a minute."; return; }
+  const W = adWindows();
+  const st = W.map(w => adStats(w.from, w.to));
+  const yday = W[3].to;
+  $("#ads-sub").innerHTML = `Paid Meta ads only. Every column runs through <b>yesterday, ${dLabel(yday)}</b>; today is left out because it isn't finished. ` +
+    (ADS.mode === "cohort" ? "Trials and members are counted against the day that family first came in as a lead, so recent columns fill in over the following weeks." : "Trials and members are counted on the day they happened, whichever ad brought the family in.");
+  const R = [
+    ["Spend and leads"],
+    ["Ad spend", s => fmt$(s.spend)],
+    ["Leads (Meta)", s => fmtN(s.metaLeads) + `<span class="dim">${fmtN(s.crmLeads)} reached the CRM</span>`],
+    ["Cost per lead", s => per(s.spend, s.metaLeads)],
+    ["Replied to first text", s => s.openers == null ? '<span class="dim">all locations only</span>' : (s.openers ? pct(s.replies, s.openers) + `<span class="dim">${s.replies} of ${s.openers}</span>` : "—")],
+    ["Trials"],
+    ["Paid trials", s => fmtN(s.trials) + (s.metaLeads ? `<span class="dim">${pct(s.trials, s.metaLeads)} of leads</span>` : "")],
+    ["Cost per trial", s => per(s.spend, s.trials)],
+    ["Members"],
+    ["New member families", s => fmtN(s.members) + (s.trials ? `<span class="dim">${pct(s.members, s.trials)} of trials</span>` : "")],
+    ["Cost per member", s => per(s.spend, s.members)],
+    ["Money back"],
+    ["Cash collected so far", s => fmt$(s.cash) + `<span class="dim">${times(s.cash, s.spend)} ad spend</span>`],
+    ["Lifetime value", s => fmt$(s.ltv) + `<span class="dim">${times(s.ltv, s.spend)} ad spend</span>`],
+    ["Lifetime value per member", s => s.members ? fmt$((s.ltv) / s.members) : "—"],
+  ];
+  const g = $("#ads-grid");
+  g.querySelector("thead").innerHTML = "<tr><th></th>" + W.map(w => `<th class="n">${w.l}${w.k === "all" ? "" : `<br><span style="font-weight:400;letter-spacing:0;text-transform:none">${w.k === "1" ? dLabel(w.from) : dLabel(w.from) + " – " + dLabel(w.to)}</span>`}</th>`).join("") + "</tr>";
+  g.querySelector("tbody").innerHTML = R.map(([l, f]) => f ? `<tr><td>${l}</td>${st.map(s => `<td class="n">${f(s)}</td>`).join("")}</tr>` : `<tr><td class="sec" colspan="${W.length + 1}">${l}</td></tr>`).join("");
+  const fr = (D.mediaAds || []).filter(r => r.location === "franklin"), frLast = fr.length ? fr[fr.length - 1].day : null;
+  $("#ads-note").innerHTML = ADS.loc === "franklin" ? (frLast && frLast >= W[1].from ? "" : `No Franklin ads running${frLast ? ` since ${dLabel(frLast)} (the 2025 Franklin campaigns)` : ""}. The Franklin launch campaign will show here as soon as it spends.`) :
+    ADS.loc === "nashville" ? "Reply rate isn't split by location yet, so it only shows under All locations." : "";
+
+  // ---- weekly chart
+  const wk = []; const last = W[3].to; const d0 = addDays(last, -(26*7) + 1);
+  for (let i = 0; i < 26; i++) wk.push({ from: addDays(d0, i*7), to: addDays(d0, i*7 + 6) });
+  const ws = wk.map(w => adStats(w.from, w.to));
+  chart("c-ads", { type:"bar", data:{ labels: wk.map(w => dLabel(w.from)), datasets:[
+    { label:"Ad spend", data: ws.map(s => Math.round(s.spend)), backgroundColor: cssVar("--s2"), yAxisID:"y", order:3 },
+    { label:"Leads (Meta)", type:"line", data: ws.map(s => s.metaLeads), borderColor: cssVar("--s1"), backgroundColor: cssVar("--s1"), yAxisID:"y1", tension:.25, pointRadius:2, order:1 },
+    { label:"Trials", type:"line", data: ws.map(s => s.trials), borderColor: cssVar("--s3"), backgroundColor: cssVar("--s3"), yAxisID:"y1", tension:.25, pointRadius:2, order:2 },
+    { label:"New members", type:"line", data: ws.map(s => s.members), borderColor: cssVar("--s5"), backgroundColor: cssVar("--s5"), yAxisID:"y1", tension:.25, pointRadius:2, borderDash:[4,3], order:2 },
+  ]}, options:{ scales:{ y:{ position:"left", ticks:{ callback: v => "$" + v }, grid:{ color: cssVar("--rule-soft") } }, y1:{ position:"right", beginAtZero:true, grid:{ display:false }, ticks:{ precision:0 } }, x:{ grid:{ display:false } } },
+    plugins:{ legend:{ labels:{ boxWidth:10 } }, tooltip:{ callbacks:{ label: c => c.dataset.yAxisID === "y" ? `Ad spend: ${fmt$(c.parsed.y)}` : `${c.dataset.label}: ${c.parsed.y}` } } } } });
+
+  // ---- campaign / ad table
+  const w = W.find(x => x.k === ADS.win), inW = (d) => d >= w.from && d <= w.to;
+  const key = (camp, ad) => ADS.by === "campaign" ? (camp || "") : (camp || "") + "|" + (ad || "");
+  const rows = {};
+  const row = (camp, ad, loc) => (rows[key(camp, ad)] ||= { camp, ad: ADS.by === "ad" ? ad : null, loc: new Set(), spend:0, leads:0, clicks:0, trials:0, members:0, cash:0, first:null, last:null });
+  (D.mediaAds || []).filter(r => adLoc(r) && inW(r.day)).forEach(r => { const o = row(r.campaign_name, r.ad_name); o.loc.add(r.location);
+    o.spend += num(r.spend); o.leads += num(r.meta_leads); o.clicks += num(r.link_clicks); o.first = o.first && o.first < r.day ? o.first : r.day; o.last = o.last && o.last > r.day ? o.last : r.day; });
+  (D.mediaOutcomes || []).filter(r => r.kind !== "lead" && adLoc(r) && inW(adDay(r))).forEach(r => {
+    const known = r.campaign_name && r.ad_name && rows[key(r.campaign_name, r.ad_name)];
+    const o = known ? rows[key(r.campaign_name, r.ad_name)] : (rows["~none"] ||= { camp: null, ad: null, none: true, loc: new Set(), spend:0, leads:0, clicks:0, trials:0, members:0, cash:0 });
+    if (r.kind === "trial") { o.trials++; if (!r.joined) o.cash += num(r.cash); } else { o.members++; o.cash += num(r.cash); }
+  });
+  const list = Object.values(rows);
+  table("#ads-tbl", list, [
+    { k:"camp", l: ADS.by === "campaign" ? "Campaign" : "Campaign / ad", v: r => r.none ? "~" : (r.camp || "") + (r.ad || ""),
+      f: r => r.none ? '<span class="dim">Ad not recorded on the lead</span>' : `<b>${esc(r.camp || "—")}</b>${r.ad ? `<br><span class="dim">${esc(r.ad)}</span>` : ""}${r.first ? `<br><span class="dim">${dLabel(r.first)} – ${dLabel(r.last)}</span>` : ""}` },
+    { k:"loc", l:"Where", v: r => [...r.loc].join(","), f: r => [...r.loc].map(l => l === "franklin" ? "Franklin" : "Nashville").join(" + ") || "—" },
+    { k:"spend", l:"Spend", n:true, f: r => r.none ? "—" : fmt$(r.spend) },
+    { k:"leads", l:"Leads", n:true, f: r => r.none ? "—" : fmtN(r.leads) },
+    { k:"cpl", l:"Per lead", n:true, v: r => r.leads ? r.spend / r.leads : null, f: r => r.leads ? fmt$(r.spend / r.leads) : "—" },
+    { k:"ctr", l:"Click → lead", n:true, v: r => r.clicks ? r.leads / r.clicks : null, f: r => r.clicks ? (100 * r.leads / r.clicks).toFixed(1) + "%" : "—" },
+    { k:"trials", l:"Trials", n:true },
+    { k:"members", l:"Members", n:true },
+    { k:"cash", l:"Cash so far", n:true, f: r => r.cash ? fmt$(r.cash) : "—" },
+  ], { sort:"spend", dir:-1, empty:"No ad spend in this period.",
+    total: (rs) => `<tr class="tot"><td>Total</td><td></td><td class="n">${fmt$(sum(rs,"spend"))}</td><td class="n">${fmtN(sum(rs,"leads"))}</td><td class="n">${per(sum(rs,"spend"), sum(rs,"leads"))}</td><td></td><td class="n">${sum(rs,"trials")}</td><td class="n">${sum(rs,"members")}</td><td class="n">${fmt$(sum(rs,"cash"))}</td></tr>` });
+
+  $("#ads-method").innerHTML = `
+    <p><b>Ad spend and leads</b> come straight from Meta, pulled for every individual ad each morning (ad level, not ad set, so nothing is double counted when ads move). Meta finalises the last few days over time, so yesterday can shift by a few dollars.</p>
+    <p><b>Which families count as "from ads"</b> uses the same lead-source rules as the rest of this dashboard: the family's first record in GoHighLevel came from a Facebook/Instagram ad. Families who saw an ad and then came in through the website count as website, so these numbers lean low, not high.</p>
+    <p><b>Trials</b> are paid "Trial Session" charges in Stripe. <b>New members</b> are families starting their first-ever membership (returning families aren't new). <b>Cash collected</b> is everything those members have paid so far, plus trial fees from trial families who haven't joined. <b>Lifetime value</b> adds the payments each member is still expected to make, the same estimate as the Members page.</p>
+    <p><b>Reply rate</b> is the share of ad leads who answered John's first text within 14 days, counted on the day that text went out.</p>
+    <p><b>Nashville vs Franklin</b>: any campaign or ad set with Franklin, Brentwood or Williamson in its name counts as Franklin. Name the Franklin launch campaign that way and it splits out on its own. Trials and members follow the ad their lead came from, or the location they picked on the form.</p>
+    <p class="dim">Updated every morning: Meta spend at 5:30am, trials and members when the money dashboard rebuilds overnight.</p>`;
+}
+seg("#ads-loc", (d) => { ADS.loc = d.l; renderAds(); });
+seg("#ads-mode", (d) => { ADS.mode = d.m; renderAds(); });
+seg("#ads-win", (d) => { ADS.win = d.w; renderAds(); });
+seg("#ads-by", (d) => { ADS.by = d.b; $("#ads-tbl")._sort = null; renderAds(); });
 
 // ---------------------------------------------------------------- insights
 const quarterOf = (iso) => iso.slice(0,4) + "-Q" + (Math.floor((+iso.slice(5,7) - 1) / 3) + 1);
